@@ -1,0 +1,11 @@
+{
+  "domain": "panasonic_smart_china",
+  "name": "Panasonic Smart China ERV",
+  "documentation": "https://github.com/dkong5ssss/panasonic_smart_china_erv",
+  "dependencies": [],
+  "codeowners": [],
+  "requirements": [],
+  "version": "1.2.4",
+  "iot_class": "cloud_polling",
+  "config_flow": true
+}
