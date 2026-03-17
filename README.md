@@ -3,6 +3,8 @@
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-blue.svg)](https://www.home-assistant.io/)
 
+This project references and builds on the original [mcdona1d/panasonic_smart_china](https://github.com/mcdona1d/panasonic_smart_china) integration. Many thanks to the original author for the Panasonic Smart China login flow and initial reverse-engineering work.
+
 Home Assistant custom integration for Panasonic Smart China fresh-air and ERV devices used with the mainland China Panasonic Smart app.
 
 This repository is focused on Panasonic fresh-air / ERV devices and keeps the original Panasonic Smart China login flow while adapting the control logic for fresh-air models.
