@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "登录松下账号",
+        "description": "请输入您的松下智能家电 App（中国版）账号密码。首次登录会自动缓存会话，后续添加设备时可复用。",
+        "data": {
+          "username": "手机号",
+          "password": "密码"
+        }
+      },
+      "device": {
+        "title": "选择新风设备",
+        "description": "已获取账号下的设备列表，请选择要添加的松下新风设备。若抓包拿到了设备 token，可一并填入以覆盖自动生成值。",
+        "data": {
+          "deviceId": "新风设备",
+          "device_token_override": "设备 Token（可选）"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "登录失败：请检查账号密码或网络连接",
+      "no_devices_found": "未找到设备：请确认账号下已绑定设备",
+      "no_supported_devices_found": "未找到可用的新风设备：当前支持 0800/0850 分类下的 SmallERV 和 MidERV 设备",
+      "token_generation_failed": "Token 生成失败：设备 ID 格式不正确",
+      "all_devices_configured": "所有设备均已添加，无需重复配置"
+    },
+    "abort": {
+      "already_configured": "该设备已配置",
+      "reauth_successful": "重新认证成功"
+    }
+  },
+  "entity": {
+    "fan": {
+      "panasonic_erv": {
+        "name": "松下新风"
+      }
+    }
+  }
+}
