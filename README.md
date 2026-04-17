@@ -80,11 +80,6 @@ custom_components/
   panasonic_smart_china/
 ```
 
-## 发布说明
-
-- 本仓库已补齐 HACS / Home Assistant 自定义集成常见发布文件，包括 `brand/` 资源、`info.md`、`hacs.json`、`manifest.json`、GitHub Actions 与 issue 模板。
-- 如果计划提交到 HACS 默认仓库，请先确保 GitHub 仓库页面已经配置好 description、topics，并在 Actions 全部通过后创建 GitHub Release。
-
 ## 免责声明
 
 本项目为非官方社区集成，请自行评估风险并承担使用后果。
