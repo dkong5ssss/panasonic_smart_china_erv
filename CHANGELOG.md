@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3
+
+- Removed an unrelated YOLO training notebook that had been accidentally committed to the repository.
+- No integration behavior or supported device logic changed in this release.
+
 ## 1.3.2
 
 - Fixed validation issues reported by Home Assistant and HACS checks.
