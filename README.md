@@ -3,6 +3,8 @@
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-blue.svg)](https://www.home-assistant.io/)
 
+![Panasonic Smart China](custom_components/panasonic_smart_china/brand/logo.png)
+
 本项目参考并基于原项目 [mcdona1d/panasonic_smart_china](https://github.com/mcdona1d/panasonic_smart_china) 继续扩展，在此感谢原作者在松下智能家电中国区登录流程与前期逆向分析上的工作。
 
 这是一个适用于 Home Assistant 的自定义集成，用于接入中国大陆地区“松下智能家电” App 下的松下新风 / ERV 设备。
@@ -18,6 +20,7 @@
 - 支持 `SmallERV` 与 `MidERV` 系列子类型
 - 在 Home Assistant 中以 `fan` 实体形式提供控制
 - 支持开关机与风量档位切换
+- 支持 `MidERV` 的运行模式切换：热交换、内循环、睡眠、自动 ECO
 - 支持定时轮询云端状态并同步到 Home Assistant
 
 ## 当前支持范围
@@ -59,6 +62,11 @@
 
 在大多数情况下，集成可以直接按照松下前端网页中的同样逻辑自动生成设备 Token。
 
+## 实体说明
+
+- 所有受支持设备都会创建一个 `fan` 实体，用于开关和风量控制。
+- `MidERV` 设备会额外创建一个 `select` 实体，用于切换运行模式。
+
 ## 注意事项
 
 - 本集成仅适用于中国区“松下智能家电” App，不适用于 Comfort Cloud。
@@ -71,6 +79,11 @@
 custom_components/
   panasonic_smart_china/
 ```
+
+## 发布说明
+
+- 本仓库已补齐 HACS / Home Assistant 自定义集成常见发布文件，包括 `brand/` 资源、`info.md`、`hacs.json`、`manifest.json`、GitHub Actions 与 issue 模板。
+- 如果计划提交到 HACS 默认仓库，请先确保 GitHub 仓库页面已经配置好 description、topics，并在 Actions 全部通过后创建 GitHub Release。
 
 ## 免责声明
 

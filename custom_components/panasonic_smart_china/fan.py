@@ -1,6 +1,7 @@
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import DOMAIN
 from .erv import async_get_coordinator
 
 
@@ -17,6 +18,12 @@ class PanasonicERVEntity(CoordinatorEntity, FanEntity):
         super().__init__(coordinator)
         self._attr_name = name
         self._attr_unique_id = f"panasonic_{coordinator.device_id}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, coordinator.device_id)},
+            "manufacturer": "Panasonic",
+            "model": coordinator.device_subtype,
+            "name": name,
+        }
         self._attr_supported_features = (
             FanEntityFeature.TURN_ON
             | FanEntityFeature.TURN_OFF

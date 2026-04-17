@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1
+
+- Added local brand assets under `custom_components/panasonic_smart_china/brand/` for modern Home Assistant and HACS validation.
+- Added `issue_tracker`, `integration_type`, and `codeowners` metadata to the integration manifest.
+- Added English translations for the config flow to better match custom integration localization requirements.
+- Added `info.md`, GitHub Actions validation workflows, and GitHub issue templates to prepare the repository for HACS default inclusion.
+- Added Home Assistant device registry information for ERV fan and select entities.
+
 ## 1.3.0
 
 - Added a dedicated `select` entity for `MidERV` run mode control.

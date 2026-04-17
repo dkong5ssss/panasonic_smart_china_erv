@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sign in to Panasonic account",
+        "description": "Enter the credentials for your Panasonic Smart app account (China mainland). The session is cached after the first login and can be reused when adding more devices later.",
+        "data": {
+          "username": "Phone number",
+          "password": "Password"
+        }
+      },
+      "device": {
+        "title": "Select ERV device",
+        "description": "The device list for this account has been loaded. Select the Panasonic ERV device you want to add. If you captured a device token, you can also enter it here to override the auto-generated value.",
+        "data": {
+          "deviceId": "ERV device",
+          "device_token_override": "Device token (optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Login failed: check your account credentials or network connection",
+      "no_devices_found": "No devices found: verify that devices are bound to this account",
+      "no_supported_devices_found": "No supported ERV devices found: only 0800/0850 category SmallERV and MidERV devices are currently supported",
+      "token_generation_failed": "Token generation failed: the device ID format is invalid",
+      "all_devices_configured": "All devices are already configured"
+    },
+    "abort": {
+      "already_configured": "This device is already configured",
+      "reauth_successful": "Re-authentication successful"
+    }
+  },
+  "entity": {
+    "fan": {
+      "panasonic_erv": {
+        "name": "Panasonic ERV"
+      }
+    }
+  }
+}

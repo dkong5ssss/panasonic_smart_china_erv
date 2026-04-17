@@ -1,6 +1,7 @@
 from homeassistant.components.select import SelectEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import DOMAIN
 from .erv import async_get_coordinator
 
 
@@ -18,6 +19,12 @@ class PanasonicERVRunModeSelect(CoordinatorEntity, SelectEntity):
         super().__init__(coordinator)
         self._attr_name = f"{device_name} Run Mode"
         self._attr_unique_id = f"panasonic_{coordinator.device_id}_run_mode"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, coordinator.device_id)},
+            "manufacturer": "Panasonic",
+            "model": coordinator.device_subtype,
+            "name": device_name,
+        }
 
     @property
     def available(self) -> bool:

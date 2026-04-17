@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest a new feature or device capability
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: Feature description
+      description: Describe the feature or device capability you want to add
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include model numbers, device subtype, packet captures, API responses, or screenshots if available
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any workaround or alternative approach you have already tried
