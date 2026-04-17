@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.2
+
+- Fixed validation issues reported by Home Assistant and HACS checks.
+- Added `CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)` for config-entry-only setup validation.
+- Reordered `manifest.json` keys to match manifest validation requirements.
+- Updated GitHub Actions workflows to `actions/checkout@v5` to avoid Node.js 20 deprecation warnings.
+
 ## 1.3.1
 
 - Added local brand assets under `custom_components/panasonic_smart_china/brand/` for modern Home Assistant and HACS validation.
