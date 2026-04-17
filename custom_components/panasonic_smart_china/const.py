@@ -16,6 +16,11 @@ PRESET_LOW = "low"
 PRESET_MEDIUM = "medium"
 PRESET_HIGH = "high"
 
+RUN_MODE_HEAT_EXCHANGE = "heat_exchange"
+RUN_MODE_INTERNAL_CIRCULATION = "internal_circulation"
+RUN_MODE_SLEEP = "sleep"
+RUN_MODE_AUTO_ECO = "auto_eco"
+
 SMALL_ERV_PRESET_TO_AIR_VOLUME = {
     PRESET_LOW: 1,
     PRESET_HIGH: 3,
@@ -36,6 +41,17 @@ MID_ERV_AIR_VOLUME_TO_PRESET = {
     1: PRESET_LOW,
     2: PRESET_MEDIUM,
     3: PRESET_HIGH,
+}
+
+MID_ERV_RUN_MODE_TO_OPTION = {
+    0: RUN_MODE_HEAT_EXCHANGE,
+    2: RUN_MODE_INTERNAL_CIRCULATION,
+    3: RUN_MODE_SLEEP,
+    4: RUN_MODE_AUTO_ECO,
+}
+
+MID_ERV_OPTION_TO_RUN_MODE = {
+    option: mode for mode, option in MID_ERV_RUN_MODE_TO_OPTION.items()
 }
 
 DEFAULT_SMALL_ERV_PARAMS = {
@@ -133,6 +149,8 @@ SUPPORTED_ERV_SUBTYPES = {
         "safe_control_keys": MID_ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": MID_ERV_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": MID_ERV_AIR_VOLUME_TO_PRESET,
+        "run_mode_to_option": MID_ERV_RUN_MODE_TO_OPTION,
+        "option_to_run_mode": MID_ERV_OPTION_TO_RUN_MODE,
     },
 }
 
