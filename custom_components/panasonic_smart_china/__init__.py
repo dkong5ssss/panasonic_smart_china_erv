@@ -1,14 +1,12 @@
-import logging
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .erv import async_get_coordinator
 
-_LOGGER = logging.getLogger(__name__)
-
 PLATFORMS = ["fan", "select"]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
