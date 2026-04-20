@@ -170,6 +170,8 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             if subtype not in probe_order:
                 probe_order.append(subtype)
 
+        candidates: list[tuple[int, int, int, str, dict]] = []
+
         for subtype in probe_order:
             protocol = SUPPORTED_ERV_SUBTYPES[subtype]
             try:
@@ -198,21 +200,42 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 )
                 continue
 
-            if subtype != self._device_subtype:
-                _LOGGER.info(
-                    "Detected ERV subtype %s for device %s",
-                    subtype,
-                    self._device_id,
-                )
-                self._apply_protocol(subtype)
-
-            merged = self._default_params.copy()
+            merged = protocol["default_params"].copy()
             merged.update(results)
-            self._last_params = merged
-            self.data = merged
-            return merged
+            signature_score = sum(
+                1 for key in protocol.get("signature_keys", set()) if key in results
+            )
+            has_run_mode = 1 if "runM" in results else 0
+            # Probe all known protocols and prefer the richest signature match.
+            # This avoids pinning MidERV-capable devices to SmallERV just because
+            # the generic SmallERV endpoint returned a partial response first.
+            candidates.append(
+                (
+                    has_run_mode,
+                    signature_score,
+                    -probe_order.index(subtype),
+                    subtype,
+                    merged,
+                )
+            )
 
-        return None
+        if not candidates:
+            return None
+
+        _, _, _, detected_subtype, merged = max(candidates)
+
+        if detected_subtype != self._device_subtype:
+            _LOGGER.info(
+                "Detected ERV subtype %s for device %s",
+                detected_subtype,
+                self._device_id,
+            )
+            self._apply_protocol(detected_subtype)
+
+        self._last_params = merged
+        self.data = merged
+        return merged
+
 
     async def _request_status(self, url: str):
         """Send a raw ERV status request to a specific endpoint."""

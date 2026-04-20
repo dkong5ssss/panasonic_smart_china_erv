@@ -54,6 +54,20 @@ MID_ERV_OPTION_TO_RUN_MODE = {
     option: mode for mode, option in MID_ERV_RUN_MODE_TO_OPTION.items()
 }
 
+SMALL_ERV_SIGNATURE_KEYS = {
+    "filSet",
+    "oaFilExPM",
+}
+
+MID_ERV_SIGNATURE_KEYS = {
+    "runM",
+    "preM",
+    "autoSen",
+    "coldF",
+    "saSet",
+    "HeatM",
+}
+
 DEFAULT_SMALL_ERV_PARAMS = {
     "runSta": 0,
     "airVo": 1,
@@ -140,6 +154,7 @@ SUPPORTED_ERV_SUBTYPES = {
         "safe_control_keys": SMALL_ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": SMALL_ERV_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": SMALL_ERV_AIR_VOLUME_TO_PRESET,
+        "signature_keys": SMALL_ERV_SIGNATURE_KEYS,
     },
     DEVICE_SUBTYPE_MID_ERV: {
         "label": "MidERV",
@@ -151,6 +166,7 @@ SUPPORTED_ERV_SUBTYPES = {
         "air_volume_to_preset": MID_ERV_AIR_VOLUME_TO_PRESET,
         "run_mode_to_option": MID_ERV_RUN_MODE_TO_OPTION,
         "option_to_run_mode": MID_ERV_OPTION_TO_RUN_MODE,
+        "signature_keys": MID_ERV_SIGNATURE_KEYS,
     },
 }
 

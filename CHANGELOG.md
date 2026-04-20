@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.4
+
+- Improved ERV subtype probing to prefer the protocol with stronger signature keys.
+- Fixed cases where run-mode-capable devices could be pinned to `SmallERV` too early, preventing the `MidERV` run mode `select` entity from appearing.
+
 ## 1.3.3
 
 - Removed an unrelated YOLO training notebook that had been accidentally committed to the repository.
