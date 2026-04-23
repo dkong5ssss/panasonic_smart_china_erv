@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.5
+
+- Always create the ERV run mode `select` entity so it is no longer missed because of platform setup timing.
+- Renamed the run mode entity to use a clearer Chinese label: `运行模式`.
+
 ## 1.3.4
 
 - Improved ERV subtype probing to prefer the protocol with stronger signature keys.

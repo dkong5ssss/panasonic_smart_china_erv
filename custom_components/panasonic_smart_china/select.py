@@ -8,8 +8,7 @@ from .erv import async_get_coordinator
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Panasonic ERV select entities."""
     coordinator = await async_get_coordinator(hass, entry)
-    if coordinator.supports_run_mode_select:
-        async_add_entities([PanasonicERVRunModeSelect(coordinator, entry.title)])
+    async_add_entities([PanasonicERVRunModeSelect(coordinator, entry.title)])
 
 
 class PanasonicERVRunModeSelect(CoordinatorEntity, SelectEntity):
@@ -17,7 +16,7 @@ class PanasonicERVRunModeSelect(CoordinatorEntity, SelectEntity):
 
     def __init__(self, coordinator, device_name: str) -> None:
         super().__init__(coordinator)
-        self._attr_name = f"{device_name} Run Mode"
+        self._attr_name = f"{device_name} 运行模式"
         self._attr_unique_id = f"panasonic_{coordinator.device_id}_run_mode"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, coordinator.device_id)},
@@ -28,7 +27,10 @@ class PanasonicERVRunModeSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.last_update_success
+        return (
+            self.coordinator.last_update_success
+            and self.coordinator.supports_run_mode_select
+        )
 
     @property
     def current_option(self) -> str | None:
