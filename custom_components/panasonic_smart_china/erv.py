@@ -66,6 +66,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._safe_control_keys = protocol["safe_control_keys"]
         self._preset_to_air_volume = protocol["preset_to_air_volume"]
         self._air_volume_to_preset = protocol["air_volume_to_preset"]
+        self._air_volume_steps = protocol.get("air_volume_steps", [])
         self._run_mode_to_option = protocol.get("run_mode_to_option", {})
         self._option_to_run_mode = protocol.get("option_to_run_mode", {})
         self._url_get = protocol["get_url"]
@@ -85,14 +86,32 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     @property
     def preset_modes(self) -> list[str]:
-        return list(self._preset_to_air_volume.keys())
+        return list(self._option_to_run_mode.keys())
 
     @property
-    def preset_mode(self) -> str:
-        return self._air_volume_to_preset.get(
-            self._last_params.get("airVo"),
-            PRESET_LOW,
-        )
+    def preset_mode(self) -> str | None:
+        return self.current_run_mode
+
+    @property
+    def percentage_step(self) -> int | None:
+        if not self._air_volume_steps:
+            return None
+        return max(1, 100 // len(self._air_volume_steps))
+
+    @property
+    def percentage(self) -> int | None:
+        if not self._air_volume_steps:
+            return None
+        if not self.is_on:
+            return 0
+
+        current_air_volume = self._last_params.get("airVo")
+        try:
+            current_index = self._air_volume_steps.index(current_air_volume)
+        except ValueError:
+            current_index = 0
+
+        return ((current_index + 1) * 100) // len(self._air_volume_steps)
 
     @property
     def run_mode_options(self) -> list[str]:
@@ -132,27 +151,40 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             )
         return data
 
-    async def async_turn_on(self, preset_mode: str | None = None) -> None:
-        """Turn the ERV on, optionally selecting a preset."""
+    async def async_turn_on(
+        self,
+        percentage: int | None = None,
+        preset_mode: str | None = None,
+    ) -> None:
+        """Turn the ERV on, optionally selecting speed and run mode."""
         changes = {"runSta": 1}
-        if preset_mode in self._preset_to_air_volume:
-            changes["airVo"] = self._preset_to_air_volume[preset_mode]
+        if percentage is not None:
+            air_volume = self._percentage_to_air_volume(percentage)
+            if air_volume is not None:
+                changes["airVo"] = air_volume
+        if preset_mode in self._option_to_run_mode:
+            changes["runM"] = self._option_to_run_mode[preset_mode]
         await self.async_send_command(changes)
 
     async def async_turn_off(self) -> None:
         """Turn the ERV off."""
         await self.async_send_command({"runSta": 0})
 
+    async def async_set_percentage(self, percentage: int) -> None:
+        """Set ERV air volume using HA percentage semantics."""
+        air_volume = self._percentage_to_air_volume(percentage)
+        if air_volume is None:
+            await self.async_turn_off()
+            return
+        await self.async_send_command({"runSta": 1, "airVo": air_volume})
+
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set ERV air volume using HA preset modes."""
-        if preset_mode not in self._preset_to_air_volume:
-            _LOGGER.warning("Unsupported ERV preset mode requested: %s", preset_mode)
+        """Set ERV run mode using HA preset modes."""
+        if preset_mode not in self._option_to_run_mode:
+            _LOGGER.warning("Unsupported ERV run mode requested: %s", preset_mode)
             return
         await self.async_send_command(
-            {
-                "runSta": 1,
-                "airVo": self._preset_to_air_volume[preset_mode],
-            }
+            {"runSta": 1, "runM": self._option_to_run_mode[preset_mode]}
         )
 
     async def async_set_run_mode(self, option: str) -> None:
@@ -162,6 +194,17 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             _LOGGER.warning("Unsupported ERV run mode requested: %s", option)
             return
         await self.async_send_command({"runSta": 1, "runM": run_mode})
+
+    def _percentage_to_air_volume(self, percentage: int) -> int | None:
+        """Map a HA percentage to the nearest supported ERV air volume."""
+        if not self._air_volume_steps:
+            return None
+        if percentage <= 0:
+            return None
+
+        level_count = len(self._air_volume_steps)
+        level = min(level_count, max(1, (percentage * level_count + 99) // 100))
+        return self._air_volume_steps[level - 1]
 
     async def _fetch_status(self):
         """Fetch the current ERV status."""

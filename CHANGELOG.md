@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.6
+
+- Remapped ERV fan controls so airflow now uses `percentage` and MidERV run mode uses `preset_mode`.
+- This allows Home Assistant fan cards to show airflow and run mode controls on the same fan entity.
+- Kept the standalone run mode `select` entity for compatibility.
+
 ## 1.3.5
 
 - Always create the ERV run mode `select` entity so it is no longer missed because of platform setup timing.

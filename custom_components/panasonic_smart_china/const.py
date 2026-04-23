@@ -16,10 +16,10 @@ PRESET_LOW = "low"
 PRESET_MEDIUM = "medium"
 PRESET_HIGH = "high"
 
-RUN_MODE_HEAT_EXCHANGE = "heat_exchange"
-RUN_MODE_INTERNAL_CIRCULATION = "internal_circulation"
-RUN_MODE_SLEEP = "sleep"
-RUN_MODE_AUTO_ECO = "auto_eco"
+RUN_MODE_HEAT_EXCHANGE = "热交换"
+RUN_MODE_INTERNAL_CIRCULATION = "内循环"
+RUN_MODE_SLEEP = "睡眠"
+RUN_MODE_AUTO_ECO = "自动ECO"
 
 SMALL_ERV_PRESET_TO_AIR_VOLUME = {
     PRESET_LOW: 1,
@@ -53,6 +53,9 @@ MID_ERV_RUN_MODE_TO_OPTION = {
 MID_ERV_OPTION_TO_RUN_MODE = {
     option: mode for mode, option in MID_ERV_RUN_MODE_TO_OPTION.items()
 }
+
+SMALL_ERV_AIR_VOLUME_STEPS = [1, 3]
+MID_ERV_AIR_VOLUME_STEPS = [1, 2, 3]
 
 SMALL_ERV_SIGNATURE_KEYS = {
     "filSet",
@@ -154,6 +157,7 @@ SUPPORTED_ERV_SUBTYPES = {
         "safe_control_keys": SMALL_ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": SMALL_ERV_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": SMALL_ERV_AIR_VOLUME_TO_PRESET,
+        "air_volume_steps": SMALL_ERV_AIR_VOLUME_STEPS,
         "signature_keys": SMALL_ERV_SIGNATURE_KEYS,
     },
     DEVICE_SUBTYPE_MID_ERV: {
@@ -164,6 +168,7 @@ SUPPORTED_ERV_SUBTYPES = {
         "safe_control_keys": MID_ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": MID_ERV_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": MID_ERV_AIR_VOLUME_TO_PRESET,
+        "air_volume_steps": MID_ERV_AIR_VOLUME_STEPS,
         "run_mode_to_option": MID_ERV_RUN_MODE_TO_OPTION,
         "option_to_run_mode": MID_ERV_OPTION_TO_RUN_MODE,
         "signature_keys": MID_ERV_SIGNATURE_KEYS,

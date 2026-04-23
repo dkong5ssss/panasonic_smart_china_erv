@@ -24,26 +24,40 @@ class PanasonicERVEntity(CoordinatorEntity, FanEntity):
             "model": coordinator.device_subtype,
             "name": name,
         }
-        self._attr_supported_features = (
-            FanEntityFeature.TURN_ON
-            | FanEntityFeature.TURN_OFF
-            | FanEntityFeature.PRESET_MODE
-        )
 
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success
 
     @property
+    def supported_features(self) -> FanEntityFeature:
+        features = (
+            FanEntityFeature.TURN_ON
+            | FanEntityFeature.TURN_OFF
+            | FanEntityFeature.SET_SPEED
+        )
+        if self.coordinator.supports_run_mode_select:
+            features |= FanEntityFeature.PRESET_MODE
+        return features
+
+    @property
     def is_on(self) -> bool:
         return self.coordinator.is_on
+
+    @property
+    def percentage(self) -> int | None:
+        return self.coordinator.percentage
+
+    @property
+    def percentage_step(self) -> int | None:
+        return self.coordinator.percentage_step
 
     @property
     def preset_modes(self) -> list[str]:
         return self.coordinator.preset_modes
 
     @property
-    def preset_mode(self) -> str:
+    def preset_mode(self) -> str | None:
         return self.coordinator.preset_mode
 
     @property
@@ -55,13 +69,20 @@ class PanasonicERVEntity(CoordinatorEntity, FanEntity):
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self, percentage=None, preset_mode=None, **kwargs) -> None:
-        """Turn the ERV on, optionally selecting a preset."""
-        await self.coordinator.async_turn_on(preset_mode=preset_mode)
+        """Turn the ERV on, optionally selecting speed and run mode."""
+        await self.coordinator.async_turn_on(
+            percentage=percentage,
+            preset_mode=preset_mode,
+        )
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the ERV off."""
         await self.coordinator.async_turn_off()
 
+    async def async_set_percentage(self, percentage: int) -> None:
+        """Set ERV air volume using HA percentage semantics."""
+        await self.coordinator.async_set_percentage(percentage)
+
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set ERV air volume using HA preset modes."""
+        """Set ERV run mode using HA preset modes."""
         await self.coordinator.async_set_preset_mode(preset_mode)
