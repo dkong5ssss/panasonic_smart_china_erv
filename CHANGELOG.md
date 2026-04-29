@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.7
+
+- Improved ERV subtype detection during config flow so devices exposing `runM` or other MidERV status signatures are registered as `MIDERV` immediately.
+- Persist runtime subtype upgrades back into the config entry so older `SMALLERV` entries can self-heal after refresh instead of staying stuck without run mode controls.
+- This specifically addresses ERV devices such as `FY-25ZDP1C` that support internal circulation in the Panasonic app but were previously misclassified.
+
 ## 1.3.6
 
 - Remapped ERV fan controls so airflow now uses `percentage` and MidERV run mode uses `preset_mode`.

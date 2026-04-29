@@ -4,6 +4,7 @@ from datetime import timedelta
 import logging
 
 import async_timeout
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -30,7 +31,7 @@ async def async_get_coordinator(hass, entry):
     coordinators = domain_data.setdefault("coordinators", {})
     coordinator = coordinators.get(entry.entry_id)
     if coordinator is None:
-        coordinator = PanasonicERVCoordinator(hass, entry.data)
+        coordinator = PanasonicERVCoordinator(hass, entry)
         await coordinator.async_config_entry_first_refresh()
         coordinators[entry.entry_id] = coordinator
     return coordinator
@@ -39,8 +40,10 @@ async def async_get_coordinator(hass, entry):
 class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
     """Shared ERV API client and state container."""
 
-    def __init__(self, hass, config: dict) -> None:
+    def __init__(self, hass, entry: ConfigEntry) -> None:
         self._hass = hass
+        self._entry = entry
+        config = entry.data
         self._usr_id = config[CONF_USR_ID]
         self._device_id = config[CONF_DEVICE_ID]
         self._token = config[CONF_TOKEN]
@@ -274,11 +277,21 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 self._device_id,
             )
             self._apply_protocol(detected_subtype)
+            self._persist_detected_subtype(detected_subtype)
 
         self._last_params = merged
         self.data = merged
         return merged
 
+    def _persist_detected_subtype(self, detected_subtype: str) -> None:
+        """Persist runtime subtype upgrades so old config entries self-heal."""
+        if self._entry.data.get(CONF_DEVICE_SUBTYPE) == detected_subtype:
+            return
+
+        self._hass.config_entries.async_update_entry(
+            self._entry,
+            data={**self._entry.data, CONF_DEVICE_SUBTYPE: detected_subtype},
+        )
 
     async def _request_status(self, url: str):
         """Send a raw ERV status request to a specific endpoint."""

@@ -18,6 +18,7 @@ from .const import (
     DEVICE_SUBTYPE_MID_ERV,
     DEVICE_SUBTYPE_SMALL_ERV,
     DOMAIN,
+    MID_ERV_SIGNATURE_KEYS,
     SUPPORTED_ERV_CATEGORIES,
     SUPPORTED_ERV_DEVICE_HINTS,
 )
@@ -321,6 +322,9 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if matched_subtype:
                 return matched_subtype
 
+            if self._has_mid_erv_signature(info):
+                return DEVICE_SUBTYPE_MID_ERV
+
         parts = device_id.split("_")
         if len(parts) == 3 and parts[1] in SUPPORTED_ERV_CATEGORIES:
             return DEVICE_SUBTYPE_SMALL_ERV
@@ -337,6 +341,24 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if value.startswith(supported_subtype):
                 return supported_subtype
         return None
+
+    def _has_mid_erv_signature(self, info: dict) -> bool:
+        """Detect MidERV devices from embedded status metadata."""
+        candidate_dicts = [info]
+
+        status_all = info.get("statusAll")
+        if isinstance(status_all, dict):
+            candidate_dicts.append(status_all)
+
+        for candidate in candidate_dicts:
+            if "runM" in candidate:
+                return True
+
+            matched_keys = sum(1 for key in MID_ERV_SIGNATURE_KEYS if key in candidate)
+            if matched_keys >= 2:
+                return True
+
+        return False
 
     def _extract_device_token(self, dev_info):
         """Search device metadata for an already-issued device token."""
