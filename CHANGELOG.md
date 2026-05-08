@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.8
+
+- Tightened ERV status probing so unsupported endpoints that return empty or placeholder payloads are no longer treated as valid device state.
+- Fixed a regression where some MidERV-capable devices could remain stuck on the SmallERV protocol, causing panel operations to fail and app-side state changes not to propagate back into Home Assistant.
+- Added an immediate refresh after successful ERV control commands so the fan state in Home Assistant updates from the cloud-confirmed device status instead of waiting for the next polling cycle.
+
 ## 1.3.7
 
 - Improved ERV subtype detection during config flow so devices exposing `runM` or other MidERV status signatures are registered as `MIDERV` immediately.

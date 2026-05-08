@@ -23,6 +23,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 POLLING_INTERVAL = timedelta(seconds=30)
+COMMON_STATUS_KEYS = {"runSta", "airVo"}
 
 
 async def async_get_coordinator(hass, entry):
@@ -246,6 +247,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 )
                 continue
 
+            if not self._has_meaningful_status(results, protocol.get("signature_keys", set())):
+                _LOGGER.debug(
+                    "ERV status probe returned no meaningful state for %s via %s: %s",
+                    self._device_id,
+                    subtype,
+                    json_data,
+                )
+                continue
+
             merged = protocol["default_params"].copy()
             merged.update(results)
             signature_score = sum(
@@ -359,6 +369,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._last_params = self._default_params.copy()
         self._last_params.update(params)
         self.async_set_updated_data(self._last_params)
+        await self.async_request_refresh()
+
+    def _has_meaningful_status(
+        self,
+        results: dict,
+        signature_keys: set[str],
+    ) -> bool:
+        """Reject empty or placeholder payloads from unsupported ERV endpoints."""
+        return any(key in results for key in COMMON_STATUS_KEYS | set(signature_keys))
 
     def _get_headers(self) -> dict:
         return {
