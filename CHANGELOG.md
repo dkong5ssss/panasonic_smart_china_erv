@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.9
+
+- Fixed a regression in `1.3.8` where some ERV devices were incorrectly treated as unavailable because their valid status payload did not include the specific fields used by the new probe filter.
+- ERV probing now rejects only truly empty status payloads instead of requiring a narrow set of keys, restoring compatibility while still avoiding the empty-response issue from unsupported endpoints.
+- Kept the immediate post-command refresh added in `1.3.8` so Home Assistant still updates from confirmed cloud state after a control action.
+
 ## 1.3.8
 
 - Tightened ERV status probing so unsupported endpoints that return empty or placeholder payloads are no longer treated as valid device state.
