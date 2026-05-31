@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+
+- Added model-specific protocol mapping for `FY-25ZDP1C` so it is treated as a MidERV device instead of falling back to SmallERV.
+- Added support for `FV-35ZXC1C` / `35ZXC1C` dehumidifying MidERV devices, using the MidERV cloud endpoints with the smaller `runSta`/`runM` control payload observed from the Panasonic app.
+- Added the MidERV external-circulation run mode and exposed `offline` / `dehumid` status fields as entity attributes.
+- Fixed JSON-RPC style Panasonic errors such as `{"error":{"code":4106}}` being ignored after control commands.
+
 ## 1.3.9
 
 - Fixed a regression in `1.3.8` where some ERV devices were incorrectly treated as unavailable because their valid status payload did not include the specific fields used by the new probe filter.

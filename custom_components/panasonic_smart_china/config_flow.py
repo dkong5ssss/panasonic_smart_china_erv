@@ -15,9 +15,13 @@ from .const import (
     CONF_DEVICE_SUBTYPE,
     CONF_TOKEN,
     CONF_USR_ID,
+    DEHUMID_MID_ERV_MODEL_HINTS,
+    DEHUMID_MID_ERV_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_MID_ERV,
+    DEVICE_SUBTYPE_MID_ERV_DEHUMID,
     DEVICE_SUBTYPE_SMALL_ERV,
     DOMAIN,
+    MID_ERV_MODEL_HINTS,
     MID_ERV_SIGNATURE_KEYS,
     SUPPORTED_ERV_CATEGORIES,
     SUPPORTED_ERV_DEVICE_HINTS,
@@ -137,7 +141,7 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             token = (
                 manual_token
                 or self._extract_device_token(dev_info)
-                or self._generate_token(selected_dev_id)
+                or self._generate_token_from_device_info(selected_dev_id, dev_info)
             )
             if not device_subtype:
                 errors["base"] = "no_supported_devices_found"
@@ -314,13 +318,35 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.error("Token generation failed for deviceId %s: %s", device_id, err)
             return None
 
+    def _generate_token_from_device_info(self, device_id: str, info: dict) -> str | None:
+        """Generate a token from the API id or vendor MAC_CATEGORY_SUFFIX name."""
+        token_sources = [
+            str(info.get(key, ""))
+            for key in ("deviceName", "devName", "name")
+            if info.get(key)
+        ]
+        token_sources.append(device_id)
+
+        for token_source in token_sources:
+            token = self._generate_token(token_source)
+            if token:
+                return token
+        return None
+
     def _get_device_subtype(self, device_id: str, info: dict | None) -> str | None:
         """Infer the ERV subtype from device metadata first, then deviceId."""
+        model_subtype = self._match_known_model_subtype(device_id, info)
+        if model_subtype:
+            return model_subtype
+
         if info:
             subtype = str(info.get("devSubTypeId", "")).upper()
             matched_subtype = self._match_supported_subtype(subtype)
             if matched_subtype:
                 return matched_subtype
+
+            if self._has_dehumid_mid_erv_signature(info):
+                return DEVICE_SUBTYPE_MID_ERV_DEHUMID
 
             if self._has_mid_erv_signature(info):
                 return DEVICE_SUBTYPE_MID_ERV
@@ -337,10 +363,55 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _match_supported_subtype(self, value: str) -> str | None:
         """Normalize vendor subtype variants such as SMALLERV03 and MIDERV02."""
-        for supported_subtype in SUPPORTED_ERV_DEVICE_HINTS:
+        for supported_subtype in sorted(
+            SUPPORTED_ERV_DEVICE_HINTS,
+            key=len,
+            reverse=True,
+        ):
             if value.startswith(supported_subtype):
                 return supported_subtype
         return None
+
+    def _match_known_model_subtype(
+        self,
+        device_id: str,
+        info: dict | None,
+    ) -> str | None:
+        """Map known vendor model ids to the protocol they actually use."""
+        for value in self._iter_metadata_strings(device_id, info):
+            normalized = value.upper()
+            if any(hint in normalized for hint in DEHUMID_MID_ERV_MODEL_HINTS):
+                return DEVICE_SUBTYPE_MID_ERV_DEHUMID
+            if any(hint in normalized for hint in MID_ERV_MODEL_HINTS):
+                return DEVICE_SUBTYPE_MID_ERV
+        return None
+
+    def _iter_metadata_strings(self, device_id: str, value):
+        """Yield string metadata that can carry a model id."""
+        yield str(device_id)
+
+        stack = [value]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, str):
+                yield current
+            elif isinstance(current, dict):
+                stack.extend(current.values())
+            elif isinstance(current, list):
+                stack.extend(current)
+
+    def _has_dehumid_mid_erv_signature(self, info: dict) -> bool:
+        """Detect dehumidifying MidERV devices from embedded status metadata."""
+        candidate_dicts = [info]
+
+        status_all = info.get("statusAll")
+        if isinstance(status_all, dict):
+            candidate_dicts.append(status_all)
+
+        return any(
+            all(key in candidate for key in DEHUMID_MID_ERV_SIGNATURE_KEYS)
+            for candidate in candidate_dicts
+        )
 
     def _has_mid_erv_signature(self, info: dict) -> bool:
         """Detect MidERV devices from embedded status metadata."""

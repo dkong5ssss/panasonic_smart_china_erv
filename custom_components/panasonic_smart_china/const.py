@@ -11,15 +11,18 @@ ERV_DEVICE_CATEGORY = "0800"
 ERV_DEVICE_CATEGORY_ALT = "0850"
 DEVICE_SUBTYPE_SMALL_ERV = "SMALLERV"
 DEVICE_SUBTYPE_MID_ERV = "MIDERV"
+DEVICE_SUBTYPE_MID_ERV_DEHUMID = "MIDERV_DEHUMID"
 
 PRESET_LOW = "low"
 PRESET_MEDIUM = "medium"
 PRESET_HIGH = "high"
 
 RUN_MODE_HEAT_EXCHANGE = "热交换"
+RUN_MODE_EXTERNAL_CIRCULATION = "外循环"
 RUN_MODE_INTERNAL_CIRCULATION = "内循环"
 RUN_MODE_SLEEP = "睡眠"
 RUN_MODE_AUTO_ECO = "自动ECO"
+RUN_MODE_DEHUMID = "除湿"
 
 SMALL_ERV_PRESET_TO_AIR_VOLUME = {
     PRESET_LOW: 1,
@@ -45,6 +48,7 @@ MID_ERV_AIR_VOLUME_TO_PRESET = {
 
 MID_ERV_RUN_MODE_TO_OPTION = {
     0: RUN_MODE_HEAT_EXCHANGE,
+    1: RUN_MODE_EXTERNAL_CIRCULATION,
     2: RUN_MODE_INTERNAL_CIRCULATION,
     3: RUN_MODE_SLEEP,
     4: RUN_MODE_AUTO_ECO,
@@ -52,6 +56,14 @@ MID_ERV_RUN_MODE_TO_OPTION = {
 
 MID_ERV_OPTION_TO_RUN_MODE = {
     option: mode for mode, option in MID_ERV_RUN_MODE_TO_OPTION.items()
+}
+
+DEHUMID_MID_ERV_RUN_MODE_TO_OPTION = {
+    54: RUN_MODE_DEHUMID,
+}
+
+DEHUMID_MID_ERV_OPTION_TO_RUN_MODE = {
+    option: mode for mode, option in DEHUMID_MID_ERV_RUN_MODE_TO_OPTION.items()
 }
 
 SMALL_ERV_AIR_VOLUME_STEPS = [1, 3]
@@ -69,6 +81,11 @@ MID_ERV_SIGNATURE_KEYS = {
     "coldF",
     "saSet",
     "HeatM",
+}
+
+DEHUMID_MID_ERV_SIGNATURE_KEYS = {
+    "runM",
+    "dehumid",
 }
 
 DEFAULT_SMALL_ERV_PARAMS = {
@@ -134,6 +151,11 @@ DEFAULT_MID_ERV_PARAMS = {
     "tOffSta": 255,
 }
 
+DEFAULT_DEHUMID_MID_ERV_PARAMS = {
+    "runSta": 0,
+    "runM": 54,
+}
+
 SMALL_ERV_SAFE_CONTROL_KEYS = [
     CONF_DEVICE_ID,
     CONF_TOKEN,
@@ -147,6 +169,23 @@ MID_ERV_SAFE_CONTROL_KEYS = [
     CONF_USR_ID,
     *DEFAULT_MID_ERV_PARAMS.keys(),
 ]
+
+DEHUMID_MID_ERV_SAFE_CONTROL_KEYS = [
+    CONF_DEVICE_ID,
+    CONF_TOKEN,
+    CONF_USR_ID,
+    *DEFAULT_DEHUMID_MID_ERV_PARAMS.keys(),
+]
+
+MID_ERV_MODEL_HINTS = {
+    "25ZDP1C",
+    "FY-25ZDP1C",
+}
+
+DEHUMID_MID_ERV_MODEL_HINTS = {
+    "35ZXC1C",
+    "FV-35ZXC1C",
+}
 
 SUPPORTED_ERV_SUBTYPES = {
     DEVICE_SUBTYPE_SMALL_ERV: {
@@ -173,6 +212,19 @@ SUPPORTED_ERV_SUBTYPES = {
         "option_to_run_mode": MID_ERV_OPTION_TO_RUN_MODE,
         "signature_keys": MID_ERV_SIGNATURE_KEYS,
     },
+    DEVICE_SUBTYPE_MID_ERV_DEHUMID: {
+        "label": "MidERV Dehumid",
+        "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
+        "set_url": "https://app.psmartcloud.com/App/ADevSetStatusMidERV",
+        "default_params": DEFAULT_DEHUMID_MID_ERV_PARAMS,
+        "safe_control_keys": DEHUMID_MID_ERV_SAFE_CONTROL_KEYS,
+        "preset_to_air_volume": {},
+        "air_volume_to_preset": {},
+        "air_volume_steps": [],
+        "run_mode_to_option": DEHUMID_MID_ERV_RUN_MODE_TO_OPTION,
+        "option_to_run_mode": DEHUMID_MID_ERV_OPTION_TO_RUN_MODE,
+        "signature_keys": DEHUMID_MID_ERV_SIGNATURE_KEYS,
+    },
 }
 
 SUPPORTED_ERV_CATEGORIES = {
@@ -183,4 +235,5 @@ SUPPORTED_ERV_CATEGORIES = {
 SUPPORTED_ERV_DEVICE_HINTS = {
     DEVICE_SUBTYPE_SMALL_ERV,
     DEVICE_SUBTYPE_MID_ERV,
+    DEVICE_SUBTYPE_MID_ERV_DEHUMID,
 }

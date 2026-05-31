@@ -31,11 +31,9 @@ class PanasonicERVEntity(CoordinatorEntity, FanEntity):
 
     @property
     def supported_features(self) -> FanEntityFeature:
-        features = (
-            FanEntityFeature.TURN_ON
-            | FanEntityFeature.TURN_OFF
-            | FanEntityFeature.SET_SPEED
-        )
+        features = FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
+        if self.coordinator.percentage_step is not None:
+            features |= FanEntityFeature.SET_SPEED
         if self.coordinator.supports_run_mode_select:
             features |= FanEntityFeature.PRESET_MODE
         return features

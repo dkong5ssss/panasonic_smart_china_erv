@@ -133,9 +133,11 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         attrs = {
             "device_id": self._device_id,
             "device_subtype": self._device_subtype,
+            "offline": self._last_params.get("offline"),
             "runSta": self._last_params.get("runSta"),
             "airVo": self._last_params.get("airVo"),
             "runM": self._last_params.get("runM"),
+            "dehumid": self._last_params.get("dehumid"),
             "filSet": self._last_params.get("filSet"),
             "oaFilExPM": self._last_params.get("oaFilExPM"),
             "saFilEx": self._last_params.get("saFilEx"),
@@ -217,6 +219,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 probe_order.append(subtype)
 
         candidates: list[tuple[int, int, int, str, dict]] = []
+        probe_errors = []
 
         for subtype in probe_order:
             protocol = SUPPORTED_ERV_SUBTYPES[subtype]
@@ -226,15 +229,24 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 _LOGGER.debug("Fetch ERV status failed via %s: %s", subtype, err)
                 continue
 
-            error_code = str(json_data.get("errorCode", ""))
-            if error_code in {"3003", "3004"}:
-                raise RuntimeError(f"Panasonic SSID expired for device {self._device_id}")
-
             error = json_data.get("error")
             if isinstance(error, dict) and "token" in str(error.get("message", "")):
                 raise RuntimeError(
                     f"Panasonic device token rejected for {self._device_id}: {error}"
                 )
+
+            error_code = self._response_error_code(json_data)
+            if error_code in {"3003", "3004"}:
+                raise RuntimeError(f"Panasonic SSID expired for device {self._device_id}")
+            if error_code and error_code != "0":
+                probe_errors.append((subtype, json_data))
+                _LOGGER.debug(
+                    "ERV status probe returned error for %s via %s: %s",
+                    self._device_id,
+                    subtype,
+                    json_data,
+                )
+                continue
 
             results = json_data.get("results")
             if not isinstance(results, dict):
@@ -275,6 +287,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             )
 
         if not candidates:
+            if probe_errors:
+                raise RuntimeError(
+                    f"Could not fetch ERV status for {self._device_id}: {probe_errors[-1][1]}"
+                )
             return None
 
         _, _, _, detected_subtype, merged = max(candidates)
@@ -359,7 +375,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             )
             response_json = await response.json()
 
-        error_code = str(response_json.get("errorCode", ""))
+        error_code = self._response_error_code(response_json)
         if error_code and error_code != "0":
             raise RuntimeError(
                 f"Panasonic ERV set command failed for {self._device_id}: {response_json}"
@@ -369,6 +385,19 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._last_params.update(params)
         self.async_set_updated_data(self._last_params)
         await self.async_request_refresh()
+
+    def _response_error_code(self, response_json: dict) -> str:
+        """Return either Panasonic errorCode or JSON-RPC style error.code."""
+        error_code = response_json.get("errorCode")
+        if error_code not in (None, ""):
+            return str(error_code)
+
+        error = response_json.get("error")
+        if isinstance(error, dict):
+            nested_code = error.get("code")
+            if nested_code not in (None, ""):
+                return str(nested_code)
+        return ""
 
     def _get_headers(self) -> dict:
         return {
