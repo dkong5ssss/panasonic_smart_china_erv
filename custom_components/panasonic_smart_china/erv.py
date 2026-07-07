@@ -334,7 +334,6 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 url,
                 json=payload,
                 headers=self._get_headers(),
-                ssl=False,
             )
             return await response.json()
 
@@ -371,7 +370,6 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                     "params": params,
                 },
                 headers=self._get_headers(),
-                ssl=False,
             )
             response_json = await response.json()
 
