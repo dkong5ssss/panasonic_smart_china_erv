@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- Removed disabled TLS certificate verification from Panasonic cloud API requests so login, session, token, and device-control traffic uses the default verified HTTPS context.
+
 ## 1.4.0
 
 - Added model-specific protocol mapping for `FY-25ZDP1C` so it is treated as a MidERV device instead of falling back to SmallERV.
