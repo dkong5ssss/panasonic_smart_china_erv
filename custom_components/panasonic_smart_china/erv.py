@@ -19,6 +19,7 @@ from .const import (
     PRESET_LOW,
     SUPPORTED_ERV_SUBTYPES,
 )
+from .tls import psmartcloud_fingerprint
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -385,6 +386,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 url,
                 json=payload,
                 headers=self._get_headers(),
+                ssl=psmartcloud_fingerprint(),
             )
             return await response.json()
 
@@ -425,6 +427,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                     "params": params,
                 },
                 headers=self._get_headers(),
+                ssl=psmartcloud_fingerprint(),
             )
             response_json = await response.json()
 

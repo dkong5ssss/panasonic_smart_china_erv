@@ -26,6 +26,7 @@ from .const import (
     SUPPORTED_ERV_CATEGORIES,
     SUPPORTED_ERV_DEVICE_HINTS,
 )
+from .tls import psmartcloud_fingerprint
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -199,6 +200,7 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         },
                     },
                     headers=headers,
+                    ssl=psmartcloud_fingerprint(),
                 ) as response:
                     if response.status != 200:
                         return None
@@ -226,6 +228,7 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "params": {"usrId": username},
                 },
                 headers=headers,
+                ssl=psmartcloud_fingerprint(),
             ) as response:
                 data = await response.json()
                 if "results" not in data:
@@ -249,6 +252,7 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                 },
                 headers=headers,
+                ssl=psmartcloud_fingerprint(),
             ) as response:
                 login_res = await response.json()
                 if "results" not in login_res:
@@ -276,6 +280,7 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                 },
                 headers=headers,
+                ssl=psmartcloud_fingerprint(),
             ) as response:
                 dev_res = await response.json()
                 devices = {}

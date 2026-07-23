@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.3
+
+- Restored compatibility with Panasonic Smart Cloud's self-signed TLS certificate by pinning its SHA-256 fingerprint.
+- Kept certificate verification enabled for login, discovery, status, and control requests instead of falling back to insecure `ssl=False` requests.
+
 ## 1.4.2
 
 - Fixed standard MidERV control payloads to preserve Panasonic's `255` / `127` "do not change" sentinel values instead of replacing them with the latest status response.
