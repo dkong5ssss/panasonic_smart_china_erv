@@ -1,12 +1,15 @@
 # Changelog
 
-## 1.4.1
+## 1.4.2
 
-- Removed disabled TLS certificate verification from Panasonic cloud API requests so login, session, token, and device-control traffic uses the default verified HTTPS context.
 - Fixed standard MidERV control payloads to preserve Panasonic's `255` / `127` "do not change" sentinel values instead of replacing them with the latest status response.
 - Split MidERV power, airflow, and run-mode updates into protocol-safe single-field commands, preventing `fan.set_percentage` and preset changes from being ignored by affected devices.
 - Extended the ZDP1C MidERV model mapping to the FY-15, FY-35, and FY-50 family variants, including `CX` suffix models.
 - Kept the smaller model-specific payload used by dehumidifying MidERV devices unchanged.
+
+## 1.4.1
+
+- Removed disabled TLS certificate verification from Panasonic cloud API requests so login, session, token, and device-control traffic uses the default verified HTTPS context.
 
 ## 1.4.0
 
