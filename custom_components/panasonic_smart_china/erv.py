@@ -66,6 +66,11 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         )
         self._device_subtype = device_subtype
         self._default_params = protocol["default_params"]
+        self._control_params = protocol["control_params"]
+        self._merge_current_status_for_control = protocol[
+            "merge_current_status_for_control"
+        ]
+        self._single_field_commands = protocol["single_field_commands"]
         self._safe_control_keys = protocol["safe_control_keys"]
         self._preset_to_air_volume = protocol["preset_to_air_volume"]
         self._air_volume_to_preset = protocol["air_volume_to_preset"]
@@ -162,6 +167,17 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         preset_mode: str | None = None,
     ) -> None:
         """Turn the ERV on, optionally selecting speed and run mode."""
+        if self._single_field_commands:
+            commands = [{"runSta": 1}]
+            if percentage is not None:
+                air_volume = self._percentage_to_air_volume(percentage)
+                if air_volume is not None:
+                    commands.append({"airVo": air_volume})
+            if preset_mode in self._option_to_run_mode:
+                commands.append({"runM": self._option_to_run_mode[preset_mode]})
+            await self._async_send_command_sequence(commands)
+            return
+
         changes = {"runSta": 1}
         if percentage is not None:
             air_volume = self._percentage_to_air_volume(percentage)
@@ -181,6 +197,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         if air_volume is None:
             await self.async_turn_off()
             return
+
+        if self._single_field_commands:
+            commands = []
+            if not self.is_on:
+                commands.append({"runSta": 1})
+            commands.append({"airVo": air_volume})
+            await self._async_send_command_sequence(commands)
+            return
+
         await self.async_send_command({"runSta": 1, "airVo": air_volume})
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
@@ -188,6 +213,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         if preset_mode not in self._option_to_run_mode:
             _LOGGER.warning("Unsupported ERV run mode requested: %s", preset_mode)
             return
+
+        if self._single_field_commands:
+            commands = []
+            if not self.is_on:
+                commands.append({"runSta": 1})
+            commands.append({"runM": self._option_to_run_mode[preset_mode]})
+            await self._async_send_command_sequence(commands)
+            return
+
         await self.async_send_command(
             {"runSta": 1, "runM": self._option_to_run_mode[preset_mode]}
         )
@@ -198,7 +232,24 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         if run_mode is None:
             _LOGGER.warning("Unsupported ERV run mode requested: %s", option)
             return
+
+        if self._single_field_commands:
+            commands = []
+            if not self.is_on:
+                commands.append({"runSta": 1})
+            commands.append({"runM": run_mode})
+            await self._async_send_command_sequence(commands)
+            return
+
         await self.async_send_command({"runSta": 1, "runM": run_mode})
+
+    async def _async_send_command_sequence(self, commands: list[dict]) -> None:
+        """Send protocol-safe commands in order and refresh after the final one."""
+        for index, changes in enumerate(commands):
+            await self.async_send_command(
+                changes,
+                refresh=index == len(commands) - 1,
+            )
 
     def _percentage_to_air_volume(self, percentage: int) -> int | None:
         """Map a HA percentage to the nearest supported ERV air volume."""
@@ -337,18 +388,22 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             )
             return await response.json()
 
-    async def async_send_command(self, changes: dict) -> None:
-        """Read-modify-write using the ERV payload shape from the capture."""
-        latest_params = await self._fetch_status()
-        current_params = self._default_params.copy()
-        current_params.update(self._last_params)
-        if latest_params:
-            current_params.update(latest_params)
-        else:
-            _LOGGER.warning(
-                "Could not fetch latest ERV status for %s, using cached values",
-                self._device_id,
-            )
+    async def async_send_command(
+        self,
+        changes: dict,
+        *,
+        refresh: bool = True,
+    ) -> None:
+        """Send a control request using the selected ERV protocol rules."""
+        latest_params = None
+        if self._merge_current_status_for_control:
+            latest_params = await self._fetch_status()
+
+        current_params = self._control_params.copy()
+        if self._merge_current_status_for_control:
+            current_params.update(self._last_params)
+            if latest_params:
+                current_params.update(latest_params)
 
         current_params.update(changes)
         current_params[CONF_DEVICE_ID] = self._device_id
@@ -379,10 +434,13 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 f"Panasonic ERV set command failed for {self._device_id}: {response_json}"
             )
 
-        self._last_params = self._default_params.copy()
-        self._last_params.update(params)
+        optimistic_params = self._default_params.copy()
+        optimistic_params.update(self._last_params)
+        optimistic_params.update(changes)
+        self._last_params = optimistic_params
         self.async_set_updated_data(self._last_params)
-        await self.async_request_refresh()
+        if refresh:
+            await self.async_request_refresh()
 
     def _response_error_code(self, response_json: dict) -> str:
         """Return either Panasonic errorCode or JSON-RPC style error.code."""

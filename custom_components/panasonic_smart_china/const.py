@@ -151,6 +151,13 @@ DEFAULT_MID_ERV_PARAMS = {
     "tOffSta": 255,
 }
 
+# MidERV control requests use sentinel values for fields that should not change.
+# Unlike status defaults, runSta=255 means "keep the current power state".
+MID_ERV_CONTROL_PARAMS = {
+    **DEFAULT_MID_ERV_PARAMS,
+    "runSta": 255,
+}
+
 DEFAULT_DEHUMID_MID_ERV_PARAMS = {
     "runSta": 0,
     "runM": 54,
@@ -178,8 +185,10 @@ DEHUMID_MID_ERV_SAFE_CONTROL_KEYS = [
 ]
 
 MID_ERV_MODEL_HINTS = {
+    "15ZDP1C",
     "25ZDP1C",
-    "FY-25ZDP1C",
+    "35ZDP1C",
+    "50ZDP1C",
 }
 
 DEHUMID_MID_ERV_MODEL_HINTS = {
@@ -193,6 +202,9 @@ SUPPORTED_ERV_SUBTYPES = {
         "get_url": "https://app.psmartcloud.com/App/ADevGetStatusSmallERV",
         "set_url": "https://app.psmartcloud.com/App/ADevSetStatusSmallERV",
         "default_params": DEFAULT_SMALL_ERV_PARAMS,
+        "control_params": DEFAULT_SMALL_ERV_PARAMS,
+        "merge_current_status_for_control": True,
+        "single_field_commands": False,
         "safe_control_keys": SMALL_ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": SMALL_ERV_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": SMALL_ERV_AIR_VOLUME_TO_PRESET,
@@ -204,6 +216,9 @@ SUPPORTED_ERV_SUBTYPES = {
         "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
         "set_url": "https://app.psmartcloud.com/App/ADevSetStatusMidERV",
         "default_params": DEFAULT_MID_ERV_PARAMS,
+        "control_params": MID_ERV_CONTROL_PARAMS,
+        "merge_current_status_for_control": False,
+        "single_field_commands": True,
         "safe_control_keys": MID_ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": MID_ERV_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": MID_ERV_AIR_VOLUME_TO_PRESET,
@@ -217,6 +232,9 @@ SUPPORTED_ERV_SUBTYPES = {
         "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
         "set_url": "https://app.psmartcloud.com/App/ADevSetStatusMidERV",
         "default_params": DEFAULT_DEHUMID_MID_ERV_PARAMS,
+        "control_params": DEFAULT_DEHUMID_MID_ERV_PARAMS,
+        "merge_current_status_for_control": False,
+        "single_field_commands": False,
         "safe_control_keys": DEHUMID_MID_ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": {},
         "air_volume_to_preset": {},
