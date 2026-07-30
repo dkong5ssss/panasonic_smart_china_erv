@@ -15,8 +15,11 @@ from .const import (
     CONF_DEVICE_SUBTYPE,
     CONF_TOKEN,
     CONF_USR_ID,
+    DC_ERV_MODEL_HINTS,
+    DC_ERV_SIGNATURE_KEYS,
     DEHUMID_MID_ERV_MODEL_HINTS,
     DEHUMID_MID_ERV_SIGNATURE_KEYS,
+    DEVICE_SUBTYPE_DC_ERV,
     DEVICE_SUBTYPE_MID_ERV,
     DEVICE_SUBTYPE_MID_ERV_DEHUMID,
     DEVICE_SUBTYPE_SMALL_ERV,
@@ -304,8 +307,8 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # stoken = mac[6:] + '_' + category + '_' + mac[:6]
             # token = sha512(sha512(stoken) + '_' + suffix)
             # Keep the suffix case unchanged, otherwise ERV tokens will fail.
-            mac_part = parts[0]
-            category = parts[1]
+            mac_part = parts[0].upper()
+            category = parts[1].upper()
             suffix = parts[2]
 
             if len(mac_part) < 6:
@@ -346,6 +349,9 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if matched_subtype:
                 return matched_subtype
 
+            if self._has_dc_erv_signature(info):
+                return DEVICE_SUBTYPE_DC_ERV
+
             if self._has_dehumid_mid_erv_signature(info):
                 return DEVICE_SUBTYPE_MID_ERV_DEHUMID
 
@@ -383,6 +389,8 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             normalized = value.upper()
             if any(hint in normalized for hint in DEHUMID_MID_ERV_MODEL_HINTS):
                 return DEVICE_SUBTYPE_MID_ERV_DEHUMID
+            if any(hint in normalized for hint in DC_ERV_MODEL_HINTS):
+                return DEVICE_SUBTYPE_DC_ERV
             if any(hint in normalized for hint in MID_ERV_MODEL_HINTS):
                 return DEVICE_SUBTYPE_MID_ERV
         return None
@@ -413,6 +421,28 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             all(key in candidate for key in DEHUMID_MID_ERV_SIGNATURE_KEYS)
             for candidate in candidate_dicts
         )
+
+    def _has_dc_erv_signature(self, info: dict) -> bool:
+        """Detect DCERV-03 devices from embedded status metadata."""
+        candidate_dicts = [info]
+
+        status_all = info.get("statusAll")
+        if isinstance(status_all, dict):
+            candidate_dicts.append(status_all)
+
+        for candidate in candidate_dicts:
+            run_mode = candidate.get("runM")
+            try:
+                if 48 <= int(run_mode) <= 53:
+                    return True
+            except (TypeError, ValueError):
+                pass
+
+            matched_keys = sum(1 for key in DC_ERV_SIGNATURE_KEYS if key in candidate)
+            if matched_keys >= 2:
+                return True
+
+        return False
 
     def _has_mid_erv_signature(self, info: dict) -> bool:
         """Detect MidERV devices from embedded status metadata."""

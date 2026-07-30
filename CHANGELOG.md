@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+
+- Added DCERV-03 support with the App `ADevGetStatusDCERV` / `ADevSetStatusDCERV` endpoints, DCERV run modes, weak/strong airflow mapping, pressure controls, custom supply/exhaust airflow settings, filter cycle settings, and PM2.5/CO2/TVOC threshold selects.
+- Added an ERV `sensor` platform for PM2.5, temperature, humidity, CO2, TVOC, and filter-life fields, with field-specific filtering for Panasonic protocol sentinels such as `127`, `255`, and `65535`.
+- Added MidERV filter maintenance selects for PM2.5 filter replacement, return-air filter replacement, and clean-reminder cycles.
+- Added a holiday-mode switch for ERV protocols exposing `holM`.
+- Added `tools/probe_endpoints.py`, a read-only redacted diagnostic script for collecting endpoint/status reports without disabling TLS verification.
+
 ## 1.4.4
 
 - Delayed the post-command ERV status refresh by 5 seconds so Panasonic cloud `todoId` control requests have time to apply before Home Assistant polls the confirmed state.

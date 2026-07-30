@@ -4,3 +4,8 @@ __pycache__/
 *.pyd
 .DS_Store
 Thumbs.db
+
+# Panasonic diagnostic reports may contain device status data.
+endpoint_report_*.json
+tools/endpoint_report_*.json
+tools/dump_*.json

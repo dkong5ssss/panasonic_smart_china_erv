@@ -5,7 +5,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN
 from .erv import async_get_coordinator
 
-PLATFORMS = ["fan", "select"]
+PLATFORMS = ["fan", "select", "sensor", "switch"]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 

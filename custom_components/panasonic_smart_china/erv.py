@@ -80,6 +80,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._air_volume_steps = protocol.get("air_volume_steps", [])
         self._run_mode_to_option = protocol.get("run_mode_to_option", {})
         self._option_to_run_mode = protocol.get("option_to_run_mode", {})
+        self._extra_selects = tuple(protocol.get("extra_selects", ()))
+        self._status_request_id = protocol.get("status_request_id", 2)
+        self._status_ui_version = protocol.get("status_ui_version")
+        self._set_request_id = protocol.get("set_request_id", 0)
         self._url_get = protocol["get_url"]
         self._url_set = protocol["set_url"]
 
@@ -93,7 +97,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     @property
     def is_on(self) -> bool:
-        return self._last_params.get("runSta") == 1
+        return self._int_param("runSta") == 1
 
     @property
     def preset_modes(self) -> list[str]:
@@ -116,7 +120,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         if not self.is_on:
             return 0
 
-        current_air_volume = self._last_params.get("airVo")
+        current_air_volume = self._int_param("airVo")
         try:
             current_index = self._air_volume_steps.index(current_air_volume)
         except ValueError:
@@ -130,11 +134,28 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     @property
     def current_run_mode(self) -> str | None:
-        return self._run_mode_to_option.get(self._last_params.get("runM"))
+        return self._run_mode_to_option.get(self._int_param("runM"))
 
     @property
     def supports_run_mode_select(self) -> bool:
         return bool(self._option_to_run_mode)
+
+    @property
+    def extra_selects(self) -> tuple[dict, ...]:
+        return self._extra_selects
+
+    def supports_control_field(self, field: str) -> bool:
+        return field in self._safe_control_keys
+
+    def field_value(self, field: str):
+        return self._last_params.get(field)
+
+    def _int_param(self, field: str) -> int | None:
+        raw = self._last_params.get(field)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -151,6 +172,34 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             "saFilEx": self._last_params.get("saFilEx"),
             "raFilEx": self._last_params.get("raFilEx"),
         }
+        for key in (
+            "holM",
+            "preSet",
+            "preM",
+            "pmSen",
+            "coSen",
+            "tvSen",
+            "userSupWind",
+            "userExhWind",
+            "oaFilEx",
+            "saFilCl",
+            "raFilCl",
+            "oaPMC",
+            "saPMC",
+            "raPMC",
+            "oaHumC",
+            "raHumC",
+            "oaTeC",
+            "saTeC",
+            "raTeC",
+            "raCO2C",
+            "raTVC",
+            "oaFilExTL",
+            "saFilExTL",
+            "raFilExTL",
+        ):
+            if key in self._last_params:
+                attrs[key] = self._last_params.get(key)
         if self.current_run_mode is not None:
             attrs["run_mode"] = self.current_run_mode
         return attrs
@@ -246,6 +295,13 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
         await self.async_send_command({"runSta": 1, "runM": run_mode})
 
+    async def async_set_field(self, field: str, value: int) -> None:
+        """Set a protocol field exposed through an auxiliary entity."""
+        if not self.supports_control_field(field):
+            _LOGGER.warning("Unsupported ERV control field requested: %s", field)
+            return
+        await self.async_send_command({field: value})
+
     async def _async_send_command_sequence(self, commands: list[dict]) -> None:
         """Send protocol-safe commands in order and refresh after the final one."""
         for index, changes in enumerate(commands):
@@ -272,13 +328,13 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             if subtype not in probe_order:
                 probe_order.append(subtype)
 
-        candidates: list[tuple[int, int, int, str, dict]] = []
+        candidates: list[tuple[int, int, int, int, str, dict]] = []
         probe_errors = []
 
         for subtype in probe_order:
             protocol = SUPPORTED_ERV_SUBTYPES[subtype]
             try:
-                json_data = await self._request_status(protocol["get_url"])
+                json_data = await self._request_status(protocol)
             except Exception as err:
                 _LOGGER.debug("Fetch ERV status failed via %s: %s", subtype, err)
                 continue
@@ -326,14 +382,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             signature_score = sum(
                 1 for key in protocol.get("signature_keys", set()) if key in results
             )
-            has_run_mode = 1 if "runM" in results else 0
+            known_run_mode = self._known_run_mode_score(protocol, results)
             # Probe all known protocols and prefer the richest signature match.
             # This avoids pinning MidERV-capable devices to SmallERV just because
             # the generic SmallERV endpoint returned a partial response first.
             candidates.append(
                 (
-                    has_run_mode,
+                    known_run_mode,
                     signature_score,
+                    len(results),
                     -probe_order.index(subtype),
                     subtype,
                     merged,
@@ -347,7 +404,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 )
             return None
 
-        _, _, _, detected_subtype, merged = max(candidates)
+        _, _, _, _, detected_subtype, merged = max(candidates)
 
         if detected_subtype != self._device_subtype:
             _LOGGER.info(
@@ -372,20 +429,32 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             data={**self._entry.data, CONF_DEVICE_SUBTYPE: detected_subtype},
         )
 
-    async def _request_status(self, url: str):
+    def _known_run_mode_score(self, protocol: dict, results: dict) -> int:
+        """Return 1 only when runM is meaningful for the candidate protocol."""
+        run_mode_map = protocol.get("run_mode_to_option", {})
+        if "runM" not in results:
+            return 0
+        try:
+            return 1 if int(results["runM"]) in run_mode_map else 0
+        except (TypeError, ValueError):
+            return 0
+
+    async def _request_status(self, protocol: dict):
         """Send a raw ERV status request to a specific endpoint."""
         payload = {
-            "id": 2,
+            "id": protocol.get("status_request_id", 2),
             "params": {
                 "token": self._token,
                 "deviceId": self._device_id,
                 "usrId": self._usr_id,
             },
         }
+        if protocol.get("status_ui_version") is not None:
+            payload["uiVersion"] = protocol["status_ui_version"]
         session = async_get_clientsession(self._hass)
         async with async_timeout.timeout(10):
             response = await session.post(
-                url,
+                protocol["get_url"],
                 json=payload,
                 headers=self._get_headers(),
                 ssl=psmartcloud_fingerprint(),
@@ -425,7 +494,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             response = await session.post(
                 self._url_set,
                 json={
-                    "id": 0,
+                    "id": self._set_request_id,
                     "params": params,
                 },
                 headers=self._get_headers(),
