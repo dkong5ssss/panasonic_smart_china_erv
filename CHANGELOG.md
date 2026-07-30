@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.4
+
+- Delayed the post-command ERV status refresh by 5 seconds so Panasonic cloud `todoId` control requests have time to apply before Home Assistant polls the confirmed state.
+- This mirrors the timing used by a user-confirmed MidERV implementation and avoids immediately reverting the UI to the pre-command state when the cloud still returns stale status.
+
 ## 1.4.3
 
 - Restored compatibility with Panasonic Smart Cloud's self-signed TLS certificate by pinning its SHA-256 fingerprint.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 
@@ -24,6 +25,7 @@ from .tls import psmartcloud_fingerprint
 _LOGGER = logging.getLogger(__name__)
 
 POLLING_INTERVAL = timedelta(seconds=30)
+COMMAND_REFRESH_DELAY = 5
 
 
 async def async_get_coordinator(hass, entry):
@@ -443,6 +445,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._last_params = optimistic_params
         self.async_set_updated_data(self._last_params)
         if refresh:
+            await asyncio.sleep(COMMAND_REFRESH_DELAY)
             await self.async_request_refresh()
 
     def _response_error_code(self, response_json: dict) -> str:
