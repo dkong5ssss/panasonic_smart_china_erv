@@ -55,15 +55,9 @@
 ### 通过 HACS 安装（推荐）
 
 1. 打开 Home Assistant 中的 HACS。
-2. 搜索 `Panasonic Smart China ERV`。
-3. 点击下载安装。
+2. 搜索 `Panasonic Smart China ERV` 并下载安装。
+3. 或手动添加自定义仓库：`https://github.com/dkong5ssss/panasonic_smart_china_erv`。
 4. 重启 Home Assistant。
-
-### 手动安装
-
-1. 将 `custom_components/panasonic_smart_china` 复制到 Home Assistant 的 `/config/custom_components/` 目录下。
-2. 重启 Home Assistant。
-3. 在 `设置 -> 设备与服务` 中添加集成。
 
 ## 配置说明
 
