@@ -1,7 +1,8 @@
 # Panasonic Smart China ERV for Home Assistant
 
-[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-blue.svg)](https://www.home-assistant.io/)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Integration-18BCF2.svg)](https://www.home-assistant.io/)
+[![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=panasonic_smart_china)
 
 ![Panasonic Smart China](custom_components/panasonic_smart_china/brand/logo.png)
 
@@ -49,11 +50,13 @@
 
 ## 安装方法
 
-### 通过 HACS 安装
+[![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=panasonic_smart_china)
 
-1. 打开 HACS。
-2. 将本仓库添加为自定义集成仓库。
-3. 搜索并安装 `Panasonic Smart China ERV`。
+### 通过 HACS 安装（推荐）
+
+1. 打开 Home Assistant 中的 HACS。
+2. 搜索 `Panasonic Smart China ERV`。
+3. 点击下载安装。
 4. 重启 Home Assistant。
 
 ### 手动安装
