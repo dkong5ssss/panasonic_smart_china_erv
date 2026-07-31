@@ -4,7 +4,9 @@
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Integration-18BCF2.svg)](https://www.home-assistant.io/)
 [![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=panasonic_smart_china)
 
-![Panasonic Smart China](custom_components/panasonic_smart_china/brand/logo.png)
+<p align="center">
+  <img src="custom_components/panasonic_smart_china/brand/logo.png" width="200" alt="Panasonic Smart China">
+</p>
 
 本项目参考并基于原项目 [mcdona1d/panasonic_smart_china](https://github.com/mcdona1d/panasonic_smart_china) 继续扩展，在此感谢原作者在松下智能家电中国区登录流程与前期逆向分析上的工作。
 
