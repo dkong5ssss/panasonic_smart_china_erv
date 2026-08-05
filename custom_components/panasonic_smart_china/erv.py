@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 import logging
+import time
 
 import async_timeout
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .api import authenticate
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_SUBTYPE,
@@ -20,6 +23,7 @@ from .const import (
     DEVICE_SUBTYPE_SMALL_ERV,
     DOMAIN,
     PRESET_LOW,
+    RELOGIN_COOLDOWN_SECONDS,
     SUPPORTED_ERV_SUBTYPES,
 )
 from .tls import psmartcloud_fingerprint
@@ -57,6 +61,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._ssid = config[CONF_SSID]
         self._family_id = config.get(CONF_FAMILY_ID)
         self._real_family_id = config.get(CONF_REAL_FAMILY_ID)
+        # Credentials stored since v1.7.1 let the runtime silently re-login to
+        # self-heal a missing/stale familyId or SSID.
+        self._username = config.get(CONF_USERNAME)
+        self._password = config.get(CONF_PASSWORD)
         self._device_subtype = config.get(CONF_DEVICE_SUBTYPE, DEVICE_SUBTYPE_SMALL_ERV)
         self._apply_protocol(self._device_subtype)
         self._last_params = self._default_params.copy()
@@ -482,16 +490,20 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
     async def _request_status_all(self) -> dict | None:
         """Fetch the device-list statusAll payload used by LD5C control state.
 
-        Requires familyId/realFamilyId, which are stored in the config entry
-        by the config flow. Returns None when they are unavailable.
+        Requires familyId/realFamilyId, stored in the config entry by the
+        config flow (or self-healed via a silent re-login since v1.7.1).
+        Returns None when they are unavailable.
         """
         if not self._family_id or not self._real_family_id:
-            _LOGGER.warning(
-                "LD5C statusAll requires familyId/realFamilyId for %s; "
-                "please re-add the integration",
-                self._device_id,
-            )
-            return None
+            healed = await self._try_self_heal_family_id()
+            if not healed:
+                _LOGGER.warning(
+                    "LD5C statusAll requires familyId/realFamilyId for %s; "
+                    "delete the integration and re-add it once with your "
+                    "Panasonic account (v1.7.1+) to store credentials",
+                    self._device_id,
+                )
+                return None
 
         payload = {
             "id": 3,
@@ -523,6 +535,60 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 # int so control payloads and attribute display stay clean.
                 return self._normalize_status_all(status_all)
         return None
+
+    async def _try_self_heal_family_id(self) -> bool:
+        """Silently re-login to fetch familyId/realFamilyId and write them back.
+
+        Uses credentials stored in the config entry (v1.7.1+). A cooldown keeps
+        re-logins rare because a new login kicks the previous cloud session
+        (e.g. the Panasonic phone app).
+        """
+        if not self._username or not self._password:
+            return False
+
+        domain_data = self._hass.data.setdefault(DOMAIN, {})
+        now = time.monotonic()
+        last_ts = domain_data.get("last_relogin_ts", 0)
+        if now - last_ts < RELOGIN_COOLDOWN_SECONDS:
+            _LOGGER.debug(
+                "Skip silent re-login for %s: cooldown active (%ds left)",
+                self._device_id,
+                int(RELOGIN_COOLDOWN_SECONDS - (now - last_ts)),
+            )
+            return False
+        domain_data["last_relogin_ts"] = now
+
+        try:
+            result = await authenticate(self._username, self._password)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Silent re-login failed for %s: %s", self._device_id, err)
+            return False
+
+        new_data = {**self._entry.data}
+        new_data[CONF_USR_ID] = result["usrId"]
+        new_data[CONF_SSID] = result["ssId"]
+        if result.get(CONF_FAMILY_ID) is not None:
+            new_data[CONF_FAMILY_ID] = result[CONF_FAMILY_ID]
+        if result.get(CONF_REAL_FAMILY_ID) is not None:
+            new_data[CONF_REAL_FAMILY_ID] = result[CONF_REAL_FAMILY_ID]
+        self._hass.config_entries.async_update_entry(self._entry, data=new_data)
+
+        # Refresh in-memory state so the retry below uses the new values.
+        self._usr_id = result["usrId"]
+        self._ssid = result["ssId"]
+        self._family_id = new_data.get(CONF_FAMILY_ID)
+        self._real_family_id = new_data.get(CONF_REAL_FAMILY_ID)
+
+        if not self._family_id or not self._real_family_id:
+            _LOGGER.warning(
+                "Silent re-login for %s did not return familyId; "
+                "the account may need re-adding",
+                self._device_id,
+            )
+            return False
+
+        _LOGGER.info("Self-healed familyId for %s via silent re-login", self._device_id)
+        return True
 
     @staticmethod
     def _normalize_status_all(status_all: dict) -> dict:

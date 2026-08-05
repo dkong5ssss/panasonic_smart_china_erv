@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
+from .api import authenticate
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_TOKEN_OVERRIDE,
@@ -28,9 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 
 HEX_128_RE = re.compile(r"^[0-9a-fA-F]{128}$")
 
-URL_LOGIN = "https://app.psmartcloud.com/App/UsrLogin"
 URL_GET_DEV = "https://app.psmartcloud.com/App/UsrGetBindDevInfo"
-URL_GET_TOKEN = "https://app.psmartcloud.com/App/UsrGetToken"
 
 
 class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -50,26 +49,38 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if cached_session:
             _LOGGER.info("Found cached session, verifying validity")
-            valid_devices = await self._get_devices_with_ssid(
-                cached_session[CONF_USR_ID],
-                cached_session[CONF_SSID],
-            )
-            if valid_devices:
-                _LOGGER.info("Cached Panasonic session is still valid")
-                self._login_data = {
-                    CONF_USR_ID: cached_session[CONF_USR_ID],
-                    CONF_SSID: cached_session[CONF_SSID],
-                }
-                self._temp_login_info = {
-                    CONF_FAMILY_ID: cached_session.get(CONF_FAMILY_ID),
-                    CONF_REAL_FAMILY_ID: cached_session.get(CONF_REAL_FAMILY_ID),
-                }
-                self._devices = valid_devices
-                return await self.async_step_device()
+            if not cached_session.get(CONF_FAMILY_ID) or not cached_session.get(
+                CONF_REAL_FAMILY_ID
+            ):
+                # Sessions cached by pre-1.6.0 code lack familyId, which the
+                # device-list API (and LD5C statusAll) requires. Do not let a
+                # None propagate into a brand-new entry; force the full login.
+                _LOGGER.warning(
+                    "Cached session has no familyId/realFamilyId; forcing full login"
+                )
+                if DOMAIN in self.hass.data:
+                    self.hass.data[DOMAIN]["session"] = None
+            else:
+                valid_devices = await self._get_devices_with_ssid(
+                    cached_session[CONF_USR_ID],
+                    cached_session[CONF_SSID],
+                )
+                if valid_devices:
+                    _LOGGER.info("Cached Panasonic session is still valid")
+                    self._login_data = {
+                        CONF_USR_ID: cached_session[CONF_USR_ID],
+                        CONF_SSID: cached_session[CONF_SSID],
+                    }
+                    self._temp_login_info = {
+                        CONF_FAMILY_ID: cached_session.get(CONF_FAMILY_ID),
+                        CONF_REAL_FAMILY_ID: cached_session.get(CONF_REAL_FAMILY_ID),
+                    }
+                    self._devices = valid_devices
+                    return await self.async_step_device()
 
-            _LOGGER.warning("Cached Panasonic session expired")
-            if DOMAIN in self.hass.data:
-                self.hass.data[DOMAIN]["session"] = None
+                _LOGGER.warning("Cached Panasonic session expired")
+                if DOMAIN in self.hass.data:
+                    self.hass.data[DOMAIN]["session"] = None
 
         if user_input is not None:
             try:
@@ -83,6 +94,10 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._login_data = {
                     CONF_USR_ID: usr_id,
                     CONF_SSID: ssid,
+                    # Store credentials so the runtime coordinator can silently
+                    # re-login to self-heal familyId/SSID when they go stale.
+                    CONF_USERNAME: user_input[CONF_USERNAME],
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
                 }
                 self._devices = devices
 
@@ -163,6 +178,8 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_REAL_FAMILY_ID: self._temp_login_info.get(
                             CONF_REAL_FAMILY_ID
                         ),
+                        CONF_USERNAME: self._login_data.get(CONF_USERNAME),
+                        CONF_PASSWORD: self._login_data.get(CONF_PASSWORD),
                     },
                 )
 
@@ -221,77 +238,12 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _authenticate_full_flow(self, username, password):
         """Keep the original Smart China login sequence unchanged."""
-        headers = {"User-Agent": "SmartApp", "Content-Type": "application/json"}
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                URL_GET_TOKEN,
-                json={
-                    "id": 1,
-                    "uiVersion": 4.0,
-                    "params": {"usrId": username},
-                },
-                headers=headers,
-                ssl=psmartcloud_fingerprint(),
-            ) as response:
-                data = await response.json()
-                if "results" not in data:
-                    raise RuntimeError("GetToken failed")
-                token_start = data["results"]["token"]
-
-            pwd_md5 = hashlib.md5(password.encode()).hexdigest().upper()
-            inter_md5 = hashlib.md5((pwd_md5 + username).encode()).hexdigest().upper()
-            final_token = hashlib.md5((inter_md5 + token_start).encode()).hexdigest().upper()
-
-            async with session.post(
-                URL_LOGIN,
-                json={
-                    "id": 2,
-                    "uiVersion": 4.0,
-                    "params": {
-                        "telId": "00:00:00:00:00:00",
-                        "checkFailCount": 0,
-                        "usrId": username,
-                        "pwd": final_token,
-                    },
-                },
-                headers=headers,
-                ssl=psmartcloud_fingerprint(),
-            ) as response:
-                login_res = await response.json()
-                if "results" not in login_res:
-                    raise RuntimeError("Login failed")
-
-                res = login_res["results"]
-                real_usr_id = res["usrId"]
-                ssid = res["ssId"]
-
-                self._temp_login_info = {
-                    "realFamilyId": res["realFamilyId"],
-                    "familyId": res["familyId"],
-                }
-
-            headers["Cookie"] = f"SSID={ssid}"
-            async with session.post(
-                URL_GET_DEV,
-                json={
-                    "id": 3,
-                    "uiVersion": 4.0,
-                    "params": {
-                        "realFamilyId": res["realFamilyId"],
-                        "familyId": res["familyId"],
-                        "usrId": real_usr_id,
-                    },
-                },
-                headers=headers,
-                ssl=psmartcloud_fingerprint(),
-            ) as response:
-                dev_res = await response.json()
-                devices = {}
-                if "results" in dev_res and "devList" in dev_res["results"]:
-                    for dev in dev_res["results"]["devList"]:
-                        devices[dev["deviceId"]] = dev["params"]
-                return real_usr_id, ssid, devices
+        result = await authenticate(username, password)
+        self._temp_login_info = {
+            CONF_FAMILY_ID: result.get(CONF_FAMILY_ID),
+            CONF_REAL_FAMILY_ID: result.get(CONF_REAL_FAMILY_ID),
+        }
+        return result["usrId"], result["ssId"], result["devices"]
 
     def _generate_token(self, device_id):
         """Generate the Panasonic device token from the front-end JS logic."""

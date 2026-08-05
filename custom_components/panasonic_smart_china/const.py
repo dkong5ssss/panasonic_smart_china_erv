@@ -9,6 +9,11 @@ CONF_DEVICE_TOKEN_OVERRIDE = "device_token_override"
 CONF_FAMILY_ID = "familyId"
 CONF_REAL_FAMILY_ID = "realFamilyId"
 
+# Minimum seconds between silent re-logins triggered by runtime self-healing.
+# Re-login kicks the previous cloud session (e.g. the phone app), so it must
+# stay rare: only fires when familyId is missing and a cooldown has elapsed.
+RELOGIN_COOLDOWN_SECONDS = 300
+
 ERV_DEVICE_CATEGORY = "0800"
 ERV_DEVICE_CATEGORY_ALT = "0850"
 DEVICE_SUBTYPE_SMALL_ERV = "SMALLERV"
