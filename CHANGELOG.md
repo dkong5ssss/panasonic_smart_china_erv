@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0
+
+- **设备识别改为纯数据驱动**：不再使用写死的型号白名单（此前 `25ZDP1C` 子串匹配曾把 FY-25ZDP1C 误判为 MidERV）。识别顺序改为：云端 `devSubTypeId` 前缀 → statusAll 字段签名（`PROTOCOL_SIGNATURES` 指纹表）→ `AUTO` 兜底。
+- **未知设备也可添加**：识别不出的设备会以 `[自动识别]` 标签出现在配置流程中，添加后由运行时探测循环自动收敛到真实协议并写回配置，无需等作者发版适配新机型。
+- 删除 `MID_ERV_MODEL_HINTS` / `LD5C_MODEL_HINTS` / `DEHUMID_MID_ERV_MODEL_HINTS` / `DC_ERV_MODEL_HINTS` 四个型号集合。
+- 指纹表基于真实设备数据构建：SmallERV（filSet/oaFilExPM，实测）、LD5C（runningStatus/runningMode/airVolume，社区抓包实测）等。
+
 ## 1.6.0
 
 - **修复 FY-25ZDP1C（LD5C）状态读取与控制问题（issue #1）**。此前该机型被误判为 `MIDERV`，从 `ADevGetStatusMidERV` 端点读取控制状态，但 LD5C 的控制字段（`runningStatus` / `runningMode` / `airVolume`）只存在于设备列表 `statusAll` 中，导致 `runSta` / `runM` / `airVo` 一直停留在默认值，出现"打开后几秒自动关闭"（乐观更新后被刷新回落）且无法控制。

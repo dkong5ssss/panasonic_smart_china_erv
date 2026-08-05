@@ -20,7 +20,8 @@
 - 复用松下智能家电原始登录 / 会话流程
 - 复用厂商前端网页中的设备 Token 生成逻辑
 - 支持 `0800` 与 `0850` 分类的新风设备
-- 支持 `SmallERV`、`MidERV`、`MidERV Dehumid` 与 `DCERV-03` 系列子类型
+- 支持 `SmallERV`、`MidERV`、`MidERV Dehumid`、`DCERV-03` 与 `LD5C` 系列子类型
+- **自动识别设备协议**：登录后根据云端 `devSubTypeId` 与设备 `statusAll` 字段签名自动匹配协议，无需维护型号白名单；未识别设备也可添加，由运行时探测自动收敛
 - 在 Home Assistant 中以 `fan` 实体形式提供控制
 - 支持开关机与风量档位切换
 - 支持 `MidERV` 的运行模式切换：热交换、外循环、内循环、睡眠、自动 ECO

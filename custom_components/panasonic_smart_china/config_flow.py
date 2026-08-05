@@ -17,20 +17,9 @@ from .const import (
     CONF_DEVICE_SUBTYPE,
     CONF_TOKEN,
     CONF_USR_ID,
-    DC_ERV_MODEL_HINTS,
-    DC_ERV_SIGNATURE_KEYS,
-    DEHUMID_MID_ERV_MODEL_HINTS,
-    DEHUMID_MID_ERV_SIGNATURE_KEYS,
-    DEVICE_SUBTYPE_DC_ERV,
-    DEVICE_SUBTYPE_LD5C,
-    DEVICE_SUBTYPE_MID_ERV,
-    DEVICE_SUBTYPE_MID_ERV_DEHUMID,
-    DEVICE_SUBTYPE_SMALL_ERV,
+    DEVICE_SUBTYPE_AUTO,
     DOMAIN,
-    LD5C_MODEL_HINTS,
-    MID_ERV_MODEL_HINTS,
-    MID_ERV_SIGNATURE_KEYS,
-    SUPPORTED_ERV_CATEGORIES,
+    PROTOCOL_SIGNATURES,
     SUPPORTED_ERV_DEVICE_HINTS,
 )
 from .tls import psmartcloud_fingerprint
@@ -130,13 +119,15 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         supported_device_count = 0
         for device_id, info in self._devices.items():
             device_subtype = self._get_device_subtype(device_id, info)
-            if not device_subtype:
-                continue
-            supported_device_count += 1
             if f"panasonic_{device_id}" in existing_ids:
                 continue
+            supported_device_count += 1
             name = info.get("deviceName", "Panasonic ERV")
-            available_devices[device_id] = f"{name} ({device_id})"
+            if device_subtype == DEVICE_SUBTYPE_AUTO:
+                label = f"{name} ({device_id}) [自动识别]"
+            else:
+                label = f"{name} ({device_id})"
+            available_devices[device_id] = label
 
         if not available_devices:
             if supported_device_count:
@@ -155,9 +146,7 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 or self._extract_device_token(dev_info)
                 or self._generate_token_from_device_info(selected_dev_id, dev_info)
             )
-            if not device_subtype:
-                errors["base"] = "no_supported_devices_found"
-            elif not token:
+            if not token:
                 errors["base"] = "token_generation_failed"
             else:
                 await self.async_set_unique_id(f"panasonic_{selected_dev_id}")
@@ -349,39 +338,32 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return token
         return None
 
-    def _get_device_subtype(self, device_id: str, info: dict | None) -> str | None:
-        """Infer the ERV subtype from device metadata first, then deviceId."""
-        model_subtype = self._match_known_model_subtype(device_id, info)
-        if model_subtype:
-            return model_subtype
+    def _get_device_subtype(self, device_id: str, info: dict | None) -> str:
+        """Infer the ERV subtype from device data.
 
+        Pure data-driven inference, no hard-coded model lists:
+          1. devSubTypeId from the Panasonic cloud (authoritative) matched by
+             supported prefix (e.g. LD5C, MIDERV02, SMALLERV03).
+          2. statusAll field signature matched against PROTOCOL_SIGNATURES.
+          3. Fall back to AUTO so the device is still configurable; the
+             runtime probe loop converges on the real protocol and persists it.
+        """
         if info:
             subtype = str(info.get("devSubTypeId", "")).upper()
             matched_subtype = self._match_supported_subtype(subtype)
             if matched_subtype:
                 return matched_subtype
 
-            if self._has_ld5c_signature(info):
-                return DEVICE_SUBTYPE_LD5C
+            matched_subtype = self._match_protocol_signature(info)
+            if matched_subtype:
+                return matched_subtype
 
-            if self._has_dc_erv_signature(info):
-                return DEVICE_SUBTYPE_DC_ERV
-
-            if self._has_dehumid_mid_erv_signature(info):
-                return DEVICE_SUBTYPE_MID_ERV_DEHUMID
-
-            if self._has_mid_erv_signature(info):
-                return DEVICE_SUBTYPE_MID_ERV
-
-        parts = device_id.split("_")
-        if len(parts) == 3 and parts[1] in SUPPORTED_ERV_CATEGORIES:
-            return DEVICE_SUBTYPE_SMALL_ERV
-
-        upper_device_id = device_id.upper()
+        upper_device_id = str(device_id).upper()
         matched_subtype = self._match_supported_subtype(upper_device_id)
         if matched_subtype:
             return matched_subtype
-        return None
+
+        return DEVICE_SUBTYPE_AUTO
 
     def _match_supported_subtype(self, value: str) -> str | None:
         """Normalize vendor subtype variants such as SMALLERV03 and MIDERV02."""
@@ -394,46 +376,12 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return supported_subtype
         return None
 
-    def _match_known_model_subtype(
-        self,
-        device_id: str,
-        info: dict | None,
-    ) -> str | None:
-        """Map known vendor model ids to the protocol they actually use."""
-        for value in self._iter_metadata_strings(device_id, info):
-            normalized = value.upper()
-            if any(hint in normalized for hint in LD5C_MODEL_HINTS):
-                return DEVICE_SUBTYPE_LD5C
-            if any(hint in normalized for hint in DEHUMID_MID_ERV_MODEL_HINTS):
-                return DEVICE_SUBTYPE_MID_ERV_DEHUMID
-            if any(hint in normalized for hint in DC_ERV_MODEL_HINTS):
-                return DEVICE_SUBTYPE_DC_ERV
-            if any(hint in normalized for hint in MID_ERV_MODEL_HINTS):
-                return DEVICE_SUBTYPE_MID_ERV
-        return None
+    def _match_protocol_signature(self, info: dict) -> str | None:
+        """Match device metadata against the protocol signature table.
 
-    def _iter_metadata_strings(self, device_id: str, value):
-        """Yield string metadata that can carry a model id."""
-        yield str(device_id)
-
-        stack = [value]
-        while stack:
-            current = stack.pop()
-            if isinstance(current, str):
-                yield current
-            elif isinstance(current, dict):
-                stack.extend(current.values())
-            elif isinstance(current, list):
-                stack.extend(current)
-
-    def _has_ld5c_signature(self, info: dict) -> bool:
-        """Detect LD5C devices from the device-list statusAll payload.
-
-        LD5C (FY-25ZDP1C) reports its control fields in the statusAll blob
-        under runningStatus/runningMode/airVolume, which no live status
-        endpoint returns. Matching those keys avoids the previous
-        SmallERV/MidERV misdetection that left runSta/runM/airVo stuck at
-        sentinel values.
+        Considers both the top-level metadata dict and any nested statusAll
+        blob, and returns the protocol with the most signature keys present
+        (at least 2), or None when nothing matches.
         """
         candidate_dicts = [info]
 
@@ -441,72 +389,18 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if isinstance(status_all, dict):
             candidate_dicts.append(status_all)
 
-        for candidate in candidate_dicts:
-            matched_keys = sum(
-                1
-                for key in (
-                    "runningStatus",
-                    "runningMode",
-                    "airVolume",
-                )
-                if key in candidate
+        best_subtype: str | None = None
+        best_score = 0
+        for subtype, signature_keys in PROTOCOL_SIGNATURES.items():
+            score = max(
+                sum(1 for key in signature_keys if key in candidate)
+                for candidate in candidate_dicts
             )
-            if matched_keys >= 2:
-                return True
-        return False
+            if score > best_score:
+                best_subtype = subtype
+                best_score = score
 
-    def _has_dehumid_mid_erv_signature(self, info: dict) -> bool:
-        """Detect dehumidifying MidERV devices from embedded status metadata."""
-        candidate_dicts = [info]
-
-        status_all = info.get("statusAll")
-        if isinstance(status_all, dict):
-            candidate_dicts.append(status_all)
-
-        return any(
-            all(key in candidate for key in DEHUMID_MID_ERV_SIGNATURE_KEYS)
-            for candidate in candidate_dicts
-        )
-
-    def _has_dc_erv_signature(self, info: dict) -> bool:
-        """Detect DCERV-03 devices from embedded status metadata."""
-        candidate_dicts = [info]
-
-        status_all = info.get("statusAll")
-        if isinstance(status_all, dict):
-            candidate_dicts.append(status_all)
-
-        for candidate in candidate_dicts:
-            run_mode = candidate.get("runM")
-            try:
-                if 48 <= int(run_mode) <= 53:
-                    return True
-            except (TypeError, ValueError):
-                pass
-
-            matched_keys = sum(1 for key in DC_ERV_SIGNATURE_KEYS if key in candidate)
-            if matched_keys >= 2:
-                return True
-
-        return False
-
-    def _has_mid_erv_signature(self, info: dict) -> bool:
-        """Detect MidERV devices from embedded status metadata."""
-        candidate_dicts = [info]
-
-        status_all = info.get("statusAll")
-        if isinstance(status_all, dict):
-            candidate_dicts.append(status_all)
-
-        for candidate in candidate_dicts:
-            if "runM" in candidate:
-                return True
-
-            matched_keys = sum(1 for key in MID_ERV_SIGNATURE_KEYS if key in candidate)
-            if matched_keys >= 2:
-                return True
-
-        return False
+        return best_subtype if best_score >= 2 else None
 
     def _extract_device_token(self, dev_info):
         """Search device metadata for an already-issued device token."""

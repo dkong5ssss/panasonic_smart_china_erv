@@ -16,6 +16,10 @@ DEVICE_SUBTYPE_MID_ERV = "MIDERV"
 DEVICE_SUBTYPE_MID_ERV_DEHUMID = "MIDERV_DEHUMID"
 DEVICE_SUBTYPE_DC_ERV = "DCERV"
 DEVICE_SUBTYPE_LD5C = "LD5C"
+# AUTO = device not matched by devSubTypeId or statusAll signature at config
+# time; the runtime probe loop in the coordinator will converge on a real
+# protocol on the first fetch and persist it back to the config entry.
+DEVICE_SUBTYPE_AUTO = "AUTO"
 
 PRESET_LOW = "low"
 PRESET_MEDIUM = "medium"
@@ -481,29 +485,23 @@ DC_ERV_EXTRA_SELECTS = (
     },
 )
 
-MID_ERV_MODEL_HINTS = {
-    "15ZDP1C",
-    "35ZDP1C",
-    "50ZDP1C",
-}
-
-# FY-25ZDP1C reports devSubTypeId=LD5C on the Panasonic cloud; it is NOT a
-# MidERV. Real-device captures (community probes) show its control fields
-# live in the device-list statusAll payload under runningStatus/runningMode/
-# airVolume. See LD5C_RUN_MODE_TO_OPTION for its run-mode value domain.
-LD5C_MODEL_HINTS = {
-    "25ZDP1C",
-    "FY-25ZDP1C",
-}
-
-DEHUMID_MID_ERV_MODEL_HINTS = {
-    "35ZXC1C",
-    "FV-35ZXC1C",
-}
-
-DC_ERV_MODEL_HINTS = {
-    "35ZJD2C",
-    "FY-35ZJD2C",
+# Data-driven protocol detection. Vendor model strings are deliberately NOT
+# used (substring model matching misidentified FY-25ZDP1C as MidERV); instead
+# each protocol declares the statusAll/status field keys that identify it.
+# Checked at config time against device metadata, and at runtime by the
+# coordinator probe loop.
+PROTOCOL_SIGNATURES = {
+    DEVICE_SUBTYPE_LD5C: (
+        "runningStatus",
+        "runningMode",
+        "airVolume",
+        "holidayMode",
+        "windPath",
+    ),
+    DEVICE_SUBTYPE_DC_ERV: DC_ERV_SIGNATURE_KEYS,
+    DEVICE_SUBTYPE_MID_ERV_DEHUMID: DEHUMID_MID_ERV_SIGNATURE_KEYS,
+    DEVICE_SUBTYPE_MID_ERV: MID_ERV_SIGNATURE_KEYS,
+    DEVICE_SUBTYPE_SMALL_ERV: SMALL_ERV_SIGNATURE_KEYS,
 }
 
 SUPPORTED_ERV_SUBTYPES = {

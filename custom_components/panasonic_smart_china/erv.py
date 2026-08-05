@@ -69,10 +69,12 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     def _apply_protocol(self, device_subtype: str) -> None:
         """Load endpoint and payload rules for the selected ERV subtype."""
-        protocol = SUPPORTED_ERV_SUBTYPES.get(
-            device_subtype,
-            SUPPORTED_ERV_SUBTYPES[DEVICE_SUBTYPE_SMALL_ERV],
-        )
+        # AUTO devices have not been pinned to a protocol yet; start with the
+        # SmallERV rules and let the runtime probe loop converge on the real
+        # subtype on the first fetch.
+        if device_subtype not in SUPPORTED_ERV_SUBTYPES:
+            device_subtype = DEVICE_SUBTYPE_SMALL_ERV
+        protocol = SUPPORTED_ERV_SUBTYPES[device_subtype]
         self._device_subtype = device_subtype
         self._default_params = protocol["default_params"]
         self._control_params = protocol["control_params"]
@@ -331,7 +333,11 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     async def _fetch_status(self):
         """Fetch the current ERV status."""
-        probe_order = [self._device_subtype]
+        probe_order = [
+            subtype
+            for subtype in (self._device_subtype,)
+            if subtype in SUPPORTED_ERV_SUBTYPES
+        ]
         for subtype in SUPPORTED_ERV_SUBTYPES:
             if subtype not in probe_order:
                 probe_order.append(subtype)
