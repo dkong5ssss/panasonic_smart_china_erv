@@ -12,6 +12,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_SUBTYPE,
+    CONF_FAMILY_ID,
+    CONF_REAL_FAMILY_ID,
     CONF_SSID,
     CONF_TOKEN,
     CONF_USR_ID,
@@ -26,6 +28,8 @@ _LOGGER = logging.getLogger(__name__)
 
 POLLING_INTERVAL = timedelta(seconds=30)
 COMMAND_REFRESH_DELAY = 5
+
+URL_GET_DEV = "https://app.psmartcloud.com/App/UsrGetBindDevInfo"
 
 
 async def async_get_coordinator(hass, entry):
@@ -51,6 +55,8 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._device_id = config[CONF_DEVICE_ID]
         self._token = config[CONF_TOKEN]
         self._ssid = config[CONF_SSID]
+        self._family_id = config.get(CONF_FAMILY_ID)
+        self._real_family_id = config.get(CONF_REAL_FAMILY_ID)
         self._device_subtype = config.get(CONF_DEVICE_SUBTYPE, DEVICE_SUBTYPE_SMALL_ERV)
         self._apply_protocol(self._device_subtype)
         self._last_params = self._default_params.copy()
@@ -84,6 +90,8 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._status_request_id = protocol.get("status_request_id", 2)
         self._status_ui_version = protocol.get("status_ui_version")
         self._set_request_id = protocol.get("set_request_id", 0)
+        self._uses_status_all = protocol.get("uses_status_all", False)
+        self._status_all_field_map = protocol.get("status_all_field_map", {})
         self._url_get = protocol["get_url"]
         self._url_set = protocol["set_url"]
 
@@ -441,6 +449,88 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     async def _request_status(self, protocol: dict):
         """Send a raw ERV status request to a specific endpoint."""
+        if protocol.get("uses_status_all"):
+            # LD5C: control fields (runningStatus/runningMode/airVolume) only
+            # exist in the device-list statusAll payload; sensors come from
+            # the live MidERV endpoint. Merge both into one result dict.
+            json_data = await self._request_status_endpoint(protocol)
+            if json_data is None:
+                return None
+            status_all = await self._request_status_all()
+            if status_all:
+                mapped = {
+                    internal: status_all[external]
+                    for external, internal in self._status_all_field_map.items()
+                    if external in status_all
+                }
+                results = json_data.get("results")
+                if isinstance(results, dict):
+                    results.update(mapped)
+                    json_data["results"] = results
+                else:
+                    json_data["results"] = mapped
+            return json_data
+
+        return await self._request_status_endpoint(protocol)
+
+    async def _request_status_all(self) -> dict | None:
+        """Fetch the device-list statusAll payload used by LD5C control state.
+
+        Requires familyId/realFamilyId, which are stored in the config entry
+        by the config flow. Returns None when they are unavailable.
+        """
+        if not self._family_id or not self._real_family_id:
+            _LOGGER.warning(
+                "LD5C statusAll requires familyId/realFamilyId for %s; "
+                "please re-add the integration",
+                self._device_id,
+            )
+            return None
+
+        payload = {
+            "id": 3,
+            "uiVersion": 4.0,
+            "params": {
+                "realFamilyId": self._real_family_id,
+                "familyId": self._family_id,
+                "usrId": self._usr_id,
+            },
+        }
+        session = async_get_clientsession(self._hass)
+        try:
+            async with async_timeout.timeout(10):
+                response = await session.post(
+                    URL_GET_DEV,
+                    json=payload,
+                    headers=self._get_headers(),
+                    ssl=psmartcloud_fingerprint(),
+                )
+                dev_res = await response.json()
+        except Exception as err:
+            _LOGGER.debug("LD5C statusAll fetch failed for %s: %s", self._device_id, err)
+            return None
+
+        for dev in dev_res.get("results", {}).get("devList", []):
+            if dev.get("deviceId") == self._device_id:
+                status_all = dev.get("params", {}).get("statusAll") or {}
+                # Panasonic returns statusAll values as strings; normalize to
+                # int so control payloads and attribute display stay clean.
+                return self._normalize_status_all(status_all)
+        return None
+
+    @staticmethod
+    def _normalize_status_all(status_all: dict) -> dict:
+        """Convert statusAll string values to int where possible."""
+        normalized = {}
+        for key, value in status_all.items():
+            try:
+                normalized[key] = int(value)
+            except (TypeError, ValueError):
+                normalized[key] = value
+        return normalized
+
+    async def _request_status_endpoint(self, protocol: dict):
+        """Send a raw ERV status request to the configured status endpoint."""
         payload = {
             "id": protocol.get("status_request_id", 2),
             "params": {
@@ -469,11 +559,11 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
     ) -> None:
         """Send a control request using the selected ERV protocol rules."""
         latest_params = None
-        if self._merge_current_status_for_control:
+        if self._merge_current_status_for_control or self._uses_status_all:
             latest_params = await self._fetch_status()
 
         current_params = self._control_params.copy()
-        if self._merge_current_status_for_control:
+        if self._merge_current_status_for_control or self._uses_status_all:
             current_params.update(self._last_params)
             if latest_params:
                 current_params.update(latest_params)

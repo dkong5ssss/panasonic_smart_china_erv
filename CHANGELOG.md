@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0
+
+- **修复 FY-25ZDP1C（LD5C）状态读取与控制问题（issue #1）**。此前该机型被误判为 `MIDERV`，从 `ADevGetStatusMidERV` 端点读取控制状态，但 LD5C 的控制字段（`runningStatus` / `runningMode` / `airVolume`）只存在于设备列表 `statusAll` 中，导致 `runSta` / `runM` / `airVo` 一直停留在默认值，出现"打开后几秒自动关闭"（乐观更新后被刷新回落）且无法控制。
+- 新增 `LD5C` 子类型协议：控制状态从 `UsrGetBindDevInfo` 设备列表 `statusAll` 读取并映射（`runningStatus→runSta`、`runningMode→runM`、`airVolume→airVo`），传感器继续由 `ADevGetStatusMidERV` 端点提供。
+- LD5C 运行模式按实机抓包对齐：热交换（0）/ 内循环（2）/ 外循环（5）；风量弱 / 中 / 强（1/2/3）。
+- `FY-25ZDP1C` 型号提示从 `MIDERV` 移入 `LD5C`，并支持从 `statusAll` 签名自动识别 LD5C 设备；已配置为 MIDERV 的 LD5C 设备会在下次轮询时自动切换到 LD5C 协议。
+- 配置流程保存 `familyId` / `realFamilyId`（LD5C 状态读取需要）；不再把中文设备名当作 token 源产生 `Invalid deviceId format` 报错。
+- 注意：LD5C 的 SET 控制端点仍以 `ADevSetStatusMidERV` 为准（社区实测 `LD5C` / `LD6C` / `DCERV` SET 端点均无效），如仍有控制异常请提供 `ADevSetStatusMidERV` 返回便于继续核对。
+
 ## 1.5.0
 
 - Added DCERV-03 support with the App `ADevGetStatusDCERV` / `ADevSetStatusDCERV` endpoints, DCERV run modes, weak/strong airflow mapping, pressure controls, custom supply/exhaust airflow settings, filter cycle settings, and PM2.5/CO2/TVOC threshold selects.

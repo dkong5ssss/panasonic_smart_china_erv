@@ -6,6 +6,8 @@ CONF_TOKEN = "token"
 CONF_SSID = "SSID"
 CONF_DEVICE_SUBTYPE = "device_subtype"
 CONF_DEVICE_TOKEN_OVERRIDE = "device_token_override"
+CONF_FAMILY_ID = "familyId"
+CONF_REAL_FAMILY_ID = "realFamilyId"
 
 ERV_DEVICE_CATEGORY = "0800"
 ERV_DEVICE_CATEGORY_ALT = "0850"
@@ -13,6 +15,7 @@ DEVICE_SUBTYPE_SMALL_ERV = "SMALLERV"
 DEVICE_SUBTYPE_MID_ERV = "MIDERV"
 DEVICE_SUBTYPE_MID_ERV_DEHUMID = "MIDERV_DEHUMID"
 DEVICE_SUBTYPE_DC_ERV = "DCERV"
+DEVICE_SUBTYPE_LD5C = "LD5C"
 
 PRESET_LOW = "low"
 PRESET_MEDIUM = "medium"
@@ -80,6 +83,19 @@ DEHUMID_MID_ERV_OPTION_TO_RUN_MODE = {
     option: mode for mode, option in DEHUMID_MID_ERV_RUN_MODE_TO_OPTION.items()
 }
 
+# LD5C (FY-25ZDP1C) run modes confirmed by real-device capture
+# (mcdona1d/rudyll community probes): 0=热交换, 2=内循环, 5=外循环.
+# Unlike MidERV there is no sleep or auto-ECO mode on this model.
+LD5C_RUN_MODE_TO_OPTION = {
+    0: RUN_MODE_HEAT_EXCHANGE,
+    2: RUN_MODE_INTERNAL_CIRCULATION,
+    5: RUN_MODE_EXTERNAL_CIRCULATION,
+}
+
+LD5C_OPTION_TO_RUN_MODE = {
+    option: mode for mode, option in LD5C_RUN_MODE_TO_OPTION.items()
+}
+
 DC_ERV_RUN_MODE_TO_OPTION = {
     48: RUN_MODE_HEAT_EXCHANGE,
     49: RUN_MODE_SILENT,
@@ -143,6 +159,16 @@ DC_ERV_SIGNATURE_KEYS = {
     "oaFilExTL",
     "saFilExTL",
     "raFilExTL",
+}
+
+# LD5C devices report control fields with different names in the device-list
+# statusAll payload (runningStatus/runningMode/airVolume). After the runtime
+# field mapping these become runSta/runM/airVo, which is what the entity code
+# consumes, so the signature keys are checked against the mapped result.
+LD5C_SIGNATURE_KEYS = {
+    "runSta",
+    "runM",
+    "airVo",
 }
 
 SENSOR_KEYS_BY_SUBTYPE = {
@@ -256,6 +282,44 @@ MID_ERV_CONTROL_PARAMS = {
 DEFAULT_DEHUMID_MID_ERV_PARAMS = {
     "runSta": 0,
     "runM": 54,
+}
+
+# LD5C (FY-25ZDP1C) control state is reported by the device-list statusAll
+# payload under runningStatus/runningMode/airVolume; sensors come from the
+# MidERV endpoint. DEFAULT_LD5C_PARAMS uses the internal (mapped) names.
+DEFAULT_LD5C_PARAMS = {
+    "runSta": 0,
+    "runM": 255,
+    "airVo": 255,
+    "holM": 255,
+    "windPath": 0,
+    "preSet": 255,
+    "autoSen": 255,
+    "heatingMode": 255,
+    "alarmStatus": 0,
+}
+
+# LD5C control requests reuse the MidERV payload shape (255 = keep current).
+LD5C_CONTROL_PARAMS = {
+    **DEFAULT_LD5C_PARAMS,
+    "runSta": 255,
+}
+
+LD5C_SAFE_CONTROL_KEYS = [
+    CONF_DEVICE_ID,
+    CONF_TOKEN,
+    CONF_USR_ID,
+    *DEFAULT_LD5C_PARAMS.keys(),
+]
+
+# Field names used by the device-list statusAll payload for LD5C, mapped to
+# the internal names the entity code consumes.
+LD5C_STATUS_ALL_FIELD_MAP = {
+    "runningStatus": "runSta",
+    "runningMode": "runM",
+    "airVolume": "airVo",
+    "holidayMode": "holM",
+    "windPath": "windPath",
 }
 
 DEFAULT_DC_ERV_PARAMS = {
@@ -419,9 +483,17 @@ DC_ERV_EXTRA_SELECTS = (
 
 MID_ERV_MODEL_HINTS = {
     "15ZDP1C",
-    "25ZDP1C",
     "35ZDP1C",
     "50ZDP1C",
+}
+
+# FY-25ZDP1C reports devSubTypeId=LD5C on the Panasonic cloud; it is NOT a
+# MidERV. Real-device captures (community probes) show its control fields
+# live in the device-list statusAll payload under runningStatus/runningMode/
+# airVolume. See LD5C_RUN_MODE_TO_OPTION for its run-mode value domain.
+LD5C_MODEL_HINTS = {
+    "25ZDP1C",
+    "FY-25ZDP1C",
 }
 
 DEHUMID_MID_ERV_MODEL_HINTS = {
@@ -504,6 +576,32 @@ SUPPORTED_ERV_SUBTYPES = {
         "status_ui_version": 4.0,
         "set_request_id": 1,
     },
+    DEVICE_SUBTYPE_LD5C: {
+        "label": "LD5C",
+        # Control fields (runSta/runM/airVo) are NOT returned by any live
+        # status endpoint for LD5C; they live in the device-list statusAll
+        # payload under runningStatus/runningMode/airVolume. Sensors come
+        # from the MidERV endpoint. uses_status_all triggers the extra
+        # UsrGetBindDevInfo fetch in the coordinator.
+        "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
+        "set_url": "https://app.psmartcloud.com/App/ADevSetStatusMidERV",
+        "default_params": DEFAULT_LD5C_PARAMS,
+        "control_params": LD5C_CONTROL_PARAMS,
+        "merge_current_status_for_control": False,
+        "single_field_commands": True,
+        "safe_control_keys": LD5C_SAFE_CONTROL_KEYS,
+        "preset_to_air_volume": MID_ERV_PRESET_TO_AIR_VOLUME,
+        "air_volume_to_preset": MID_ERV_AIR_VOLUME_TO_PRESET,
+        "air_volume_steps": MID_ERV_AIR_VOLUME_STEPS,
+        "run_mode_to_option": LD5C_RUN_MODE_TO_OPTION,
+        "option_to_run_mode": LD5C_OPTION_TO_RUN_MODE,
+        "signature_keys": LD5C_SIGNATURE_KEYS,
+        "extra_selects": (),
+        "status_request_id": 2,
+        "set_request_id": 0,
+        "uses_status_all": True,
+        "status_all_field_map": LD5C_STATUS_ALL_FIELD_MAP,
+    },
 }
 
 SUPPORTED_ERV_CATEGORIES = {
@@ -516,4 +614,5 @@ SUPPORTED_ERV_DEVICE_HINTS = {
     DEVICE_SUBTYPE_MID_ERV,
     DEVICE_SUBTYPE_MID_ERV_DEHUMID,
     DEVICE_SUBTYPE_DC_ERV,
+    DEVICE_SUBTYPE_LD5C,
 }

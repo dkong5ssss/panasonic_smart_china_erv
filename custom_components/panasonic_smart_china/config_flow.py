@@ -11,6 +11,8 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_TOKEN_OVERRIDE,
+    CONF_FAMILY_ID,
+    CONF_REAL_FAMILY_ID,
     CONF_SSID,
     CONF_DEVICE_SUBTYPE,
     CONF_TOKEN,
@@ -20,10 +22,12 @@ from .const import (
     DEHUMID_MID_ERV_MODEL_HINTS,
     DEHUMID_MID_ERV_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_DC_ERV,
+    DEVICE_SUBTYPE_LD5C,
     DEVICE_SUBTYPE_MID_ERV,
     DEVICE_SUBTYPE_MID_ERV_DEHUMID,
     DEVICE_SUBTYPE_SMALL_ERV,
     DOMAIN,
+    LD5C_MODEL_HINTS,
     MID_ERV_MODEL_HINTS,
     MID_ERV_SIGNATURE_KEYS,
     SUPPORTED_ERV_CATEGORIES,
@@ -66,6 +70,10 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._login_data = {
                     CONF_USR_ID: cached_session[CONF_USR_ID],
                     CONF_SSID: cached_session[CONF_SSID],
+                }
+                self._temp_login_info = {
+                    CONF_FAMILY_ID: cached_session.get(CONF_FAMILY_ID),
+                    CONF_REAL_FAMILY_ID: cached_session.get(CONF_REAL_FAMILY_ID),
                 }
                 self._devices = valid_devices
                 return await self.async_step_device()
@@ -162,6 +170,10 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_DEVICE_ID: selected_dev_id,
                         CONF_DEVICE_SUBTYPE: device_subtype,
                         CONF_TOKEN: token,
+                        CONF_FAMILY_ID: self._temp_login_info.get(CONF_FAMILY_ID),
+                        CONF_REAL_FAMILY_ID: self._temp_login_info.get(
+                            CONF_REAL_FAMILY_ID
+                        ),
                     },
                 )
 
@@ -295,10 +307,10 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _generate_token(self, device_id):
         """Generate the Panasonic device token from the front-end JS logic."""
         try:
-            parts = device_id.split("_")
+            parts = str(device_id).split("_")
             if len(parts) != 3:
-                _LOGGER.error(
-                    "Invalid deviceId format: %s (expected MAC_CATEGORY_SUFFIX)",
+                _LOGGER.debug(
+                    "Skip token source with invalid deviceId format: %s",
                     device_id,
                 )
                 return None
@@ -349,6 +361,9 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if matched_subtype:
                 return matched_subtype
 
+            if self._has_ld5c_signature(info):
+                return DEVICE_SUBTYPE_LD5C
+
             if self._has_dc_erv_signature(info):
                 return DEVICE_SUBTYPE_DC_ERV
 
@@ -387,6 +402,8 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Map known vendor model ids to the protocol they actually use."""
         for value in self._iter_metadata_strings(device_id, info):
             normalized = value.upper()
+            if any(hint in normalized for hint in LD5C_MODEL_HINTS):
+                return DEVICE_SUBTYPE_LD5C
             if any(hint in normalized for hint in DEHUMID_MID_ERV_MODEL_HINTS):
                 return DEVICE_SUBTYPE_MID_ERV_DEHUMID
             if any(hint in normalized for hint in DC_ERV_MODEL_HINTS):
@@ -408,6 +425,35 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 stack.extend(current.values())
             elif isinstance(current, list):
                 stack.extend(current)
+
+    def _has_ld5c_signature(self, info: dict) -> bool:
+        """Detect LD5C devices from the device-list statusAll payload.
+
+        LD5C (FY-25ZDP1C) reports its control fields in the statusAll blob
+        under runningStatus/runningMode/airVolume, which no live status
+        endpoint returns. Matching those keys avoids the previous
+        SmallERV/MidERV misdetection that left runSta/runM/airVo stuck at
+        sentinel values.
+        """
+        candidate_dicts = [info]
+
+        status_all = info.get("statusAll")
+        if isinstance(status_all, dict):
+            candidate_dicts.append(status_all)
+
+        for candidate in candidate_dicts:
+            matched_keys = sum(
+                1
+                for key in (
+                    "runningStatus",
+                    "runningMode",
+                    "airVolume",
+                )
+                if key in candidate
+            )
+            if matched_keys >= 2:
+                return True
+        return False
 
     def _has_dehumid_mid_erv_signature(self, info: dict) -> bool:
         """Detect dehumidifying MidERV devices from embedded status metadata."""
