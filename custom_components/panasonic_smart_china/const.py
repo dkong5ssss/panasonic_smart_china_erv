@@ -352,14 +352,26 @@ LD5C_SAFE_CONTROL_KEYS = [
     *LD5C_SET_DEFAULT_PARAMS.keys(),
 ]
 
-# Field names used by the device-list statusAll payload for LD5C, mapped to
-# the internal names the entity code consumes.
+# Field names used by the LD5C Info endpoints (ADevGetStatusInfoLD5C / the
+# device-list statusAll payload), mapped to the internal names the entity code
+# consumes. Extended in v1.7.4 to cover the full sensor set returned by the
+# live Info GET endpoint.
 LD5C_STATUS_ALL_FIELD_MAP = {
     "runningStatus": "runSta",
     "runningMode": "runM",
     "airVolume": "airVo",
     "holidayMode": "holM",
     "windPath": "windPath",
+    "heatingMode": "heatingMode",
+    "oaPM25Cur": "oaPMC",
+    "saPM25Cur": "saPMC",
+    "raPM25Cur": "raPMC",
+    "oaTempCur": "oaTeC",
+    "saTempCur": "saTeC",
+    "raTempCur": "raTeC",
+    "oaHumidityCur": "oaHumC",
+    "raHumidityCur": "raHumC",
+    "saHumidityCur": "saHumC",
 }
 
 DEFAULT_DC_ERV_PARAMS = {
@@ -612,14 +624,13 @@ SUPPORTED_ERV_SUBTYPES = {
     },
     DEVICE_SUBTYPE_LD5C: {
         "label": "LD5C",
-        # Control state (runningStatus/runningMode/airVolume) is read from
-        # the device-list statusAll payload (UsrGetBindDevInfo); sensors come
-        # from the MidERV endpoint. uses_status_all triggers the extra
-        # UsrGetBindDevInfo fetch in the coordinator.
-        # SET goes to the dedicated Info-family endpoint with the long
-        # camelCase bean (see LD5C_SET_DEFAULT_PARAMS); the MidERV set
-        # endpoint silently ignored LD5C commands (issue #1, v1.7.3).
-        "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
+        # GET and SET both use the dedicated Info-family endpoints. The live
+        # Info GET returns the device's own long camelCase fields (control
+        # state + sensors), mapped to internal names via status_all_field_map.
+        # The device-list statusAll cache is NOT used for reads - it does not
+        # refresh after cloud control commands, which made the UI fall back to
+        # stale OFF/unknown states (issue #1, v1.7.4).
+        "get_url": "https://app.psmartcloud.com/App/ADevGetStatusInfoLD5C",
         "set_url": "https://app.psmartcloud.com/App/ADevSetStatusInfoLD5C",
         "default_params": DEFAULT_LD5C_PARAMS,
         "control_params": LD5C_SET_DEFAULT_PARAMS,
@@ -635,8 +646,9 @@ SUPPORTED_ERV_SUBTYPES = {
         "extra_selects": (),
         "status_request_id": 2,
         "set_request_id": 0,
-        "uses_status_all": True,
+        "uses_status_all": False,
         "status_all_field_map": LD5C_STATUS_ALL_FIELD_MAP,
+        "status_identity_top_level": True,
         "set_field_name_map": LD5C_SET_FIELD_NAME_MAP,
         "set_identity_top_level": True,
         "use_xtoken_header": True,

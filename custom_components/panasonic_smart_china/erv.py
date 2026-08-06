@@ -69,6 +69,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._apply_protocol(self._device_subtype)
         self._last_params = self._default_params.copy()
         self._last_status_all_raw: dict = {}
+        self._last_status_raw: dict = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -412,7 +413,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             merged = protocol["default_params"].copy()
             merged.update(results)
             if protocol.get("uses_status_all"):
-                # LD5C signature must be judged on the RAW statusAll payload
+                # LD5C legacy: signature judged on the RAW statusAll payload
                 # keys (runningStatus/runningMode/airVolume...). The mapped
                 # names (runSta/runM/airVo) collide with common fields that
                 # the live MidERV endpoint returns for EVERY device, which
@@ -421,6 +422,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 raw_keys = set(protocol.get("status_all_field_map", {}).keys())
                 signature_score = sum(
                     1 for key in raw_keys if key in raw_status_all
+                )
+            elif protocol.get("status_all_field_map"):
+                # Info-family protocols (LD5C): the live Info GET returns the
+                # device's own long camelCase names; score against the raw
+                # pre-mapping response for the same collision reason.
+                raw_status = self._last_status_raw or {}
+                raw_keys = set(protocol.get("status_all_field_map", {}).keys())
+                signature_score = sum(
+                    1 for key in raw_keys if key in raw_status
                 )
             else:
                 signature_score = sum(
@@ -494,9 +504,9 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
     async def _request_status(self, protocol: dict):
         """Send a raw ERV status request to a specific endpoint."""
         if protocol.get("uses_status_all"):
-            # LD5C: control fields (runningStatus/runningMode/airVolume) only
-            # exist in the device-list statusAll payload; sensors come from
-            # the live MidERV endpoint. Merge both into one result dict.
+            # LD5C legacy: control fields (runningStatus/runningMode/airVolume)
+            # only exist in the device-list statusAll payload; sensors come
+            # from the live MidERV endpoint. Merge both into one result dict.
             json_data = await self._request_status_endpoint(protocol)
             if json_data is None:
                 return None
@@ -519,7 +529,31 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                     json_data["results"] = mapped
             return json_data
 
-        return await self._request_status_endpoint(protocol)
+        json_data = await self._request_status_endpoint(protocol)
+        if json_data is None:
+            return None
+
+        # Protocols with a response field map (LD5C Info endpoints) return
+        # their own long camelCase names; map them to the internal names the
+        # entity code consumes and keep the raw response for signature scoring.
+        field_map = protocol.get("status_all_field_map")
+        if field_map:
+            results = json_data.get("results")
+            if isinstance(results, dict):
+                self._last_status_raw = results
+                mapped = {
+                    internal: results[external]
+                    for external, internal in field_map.items()
+                    if external in results
+                }
+                new_results = {
+                    key: value
+                    for key, value in results.items()
+                    if key not in field_map
+                }
+                new_results.update(mapped)
+                json_data["results"] = new_results
+        return json_data
 
     async def _request_status_all(self) -> dict | None:
         """Fetch the device-list statusAll payload used by LD5C control state.
@@ -646,6 +680,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 "usrId": self._usr_id,
             },
         }
+        if protocol.get("status_identity_top_level"):
+            # Info-family endpoints expect usrId/deviceId/token at the top
+            # level of the request body (official web page request shape).
+            payload = {
+                "id": protocol.get("status_request_id", 2),
+                CONF_USR_ID: self._usr_id,
+                CONF_DEVICE_ID: self._device_id,
+                CONF_TOKEN: self._token,
+            }
         if protocol.get("status_ui_version") is not None:
             payload["uiVersion"] = protocol["status_ui_version"]
         session = async_get_clientsession(self._hass)

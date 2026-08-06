@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.4
+
+- **修复 LD5C 状态读取不同步（issue #1，v1.7.3 实测后反馈）**。v1.7.3 控制已真实生效（开关/模式/风量均可控制设备），但 UI 仍会在几秒后跳回关闭/unknown——根因：状态读取仍走「MidERV 端点 + 设备列表 statusAll 合并」，而 statusAll 是**云端缓存**，控制命令执行后不刷新（仅面板操作时同步）。v1.7.4 将 LD5C 的 GET 一并切换到官方实时端点 **`ADevGetStatusInfoLD5C`**（与 SET 同属 Info 家族，官方 Web 控制页即以此显示实时状态），长驼峰字段（`runningStatus`/`runningMode`/`airVolume` + 传感器）映射为内部字段名。
+- **LD5C 传感器扩充**：实时 Info GET 返回送风/回风/室外全量 PM2.5、温度、湿度（此前仅室外 3 项），实体自动出现。
+- **LD5C 不再依赖设备列表 statusAll / familyId**：无 familyId 账号（iamkloudz）不再触发 silent re-login 与相关告警。
+- 协议探测评分改为基于 Info 端点原始长字段名，避免映射后短名与通用字段冲突的误判（延续 v1.7.2 的教训）。
+- 其他协议（SmallERV/MidERV/DCERV）不受影响。
+
 ## 1.7.3
 
 - **修复 LD5C（FY-25ZDP1C）控制完全不生效的问题（issue #1，实测根因）**。此前控制命令走 `ADevSetStatusMidERV` 端点、字段用 MidERV 风格的短名（`runSta`/`runM`/`airVo`）——云端接收请求并返回成功，但 LD5C 设备不认这套字段，命令被静默丢弃，表现为"UI 点击后几秒自动回退、硬件无反应"。经排查松下官方 Web 控制页（`app.psmartcloud.com/ca/cn/0800/LD5C/`，无 SSL pinning，页面 JS 即官方协议源码）确认：LD5C 的专用控制端点是 **`ADevSetStatusInfoLD5C`**（此前社区探测的 `ADevSetStatusLD5C` 因少了 `Info` 而 404 被误排除），字段为设备原生长驼峰名（`runningStatus`/`runningMode`/`airVolume`/`heatingMode`/`pPressureMode`/`autoSensitivity`/滤网周期/定时器等 19 项），每次请求发送完整字段表、255=保持（定时器 127=保持）、只改目标字段；身份字段（`usrId`/`deviceId`/`token`）放在请求体顶层，认证头同时携带 `xtoken`。v1.7.3 按官方实现重写 LD5C 控制链路。
