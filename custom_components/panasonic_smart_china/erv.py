@@ -104,6 +104,8 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._set_request_id = protocol.get("set_request_id", 0)
         self._uses_status_all = protocol.get("uses_status_all", False)
         self._status_all_field_map = protocol.get("status_all_field_map", {})
+        self._aux_get_url = protocol.get("aux_get_url")
+        self._aux_sensor_keys = set(protocol.get("aux_sensor_keys", ()))
         self._set_field_name_map = protocol.get("set_field_name_map", {})
         self._set_identity_top_level = protocol.get("set_identity_top_level", False)
         self._use_xtoken_header = protocol.get("use_xtoken_header", False)
@@ -553,7 +555,51 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 }
                 new_results.update(mapped)
                 json_data["results"] = new_results
+
+        # Supplementary sensor source (LD5C): the live Info GET returns
+        # real-time control state but its sensor fields are invalid sentinels
+        # on this model; real readings come from the MidERV GET endpoint.
+        # Merge only the whitelisted sensor keys so control fields are never
+        # overwritten by the auxiliary endpoint's generic values.
+        if self._aux_get_url and self._aux_sensor_keys:
+            aux = await self._request_status_aux()
+            if aux:
+                results = json_data.get("results")
+                if isinstance(results, dict):
+                    results.update(aux)
         return json_data
+
+    async def _request_status_aux(self) -> dict | None:
+        """Fetch supplementary sensor values (LD5C: MidERV GET endpoint)."""
+        payload = {
+            "id": self._status_request_id,
+            "params": {
+                "token": self._token,
+                "deviceId": self._device_id,
+                "usrId": self._usr_id,
+            },
+        }
+        session = async_get_clientsession(self._hass)
+        try:
+            async with async_timeout.timeout(10):
+                response = await session.post(
+                    self._aux_get_url,
+                    json=payload,
+                    headers=self._get_headers(),
+                    ssl=psmartcloud_fingerprint(),
+                )
+                data = await response.json()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("ERV aux sensor fetch failed for %s: %s", self._device_id, err)
+            return None
+        results = data.get("results")
+        if not isinstance(results, dict):
+            return None
+        return {
+            key: value
+            for key, value in results.items()
+            if key in self._aux_sensor_keys
+        }
 
     async def _request_status_all(self) -> dict | None:
         """Fetch the device-list statusAll payload used by LD5C control state.

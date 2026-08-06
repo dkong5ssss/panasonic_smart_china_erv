@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.5
+
+- **修复 LD5C 传感器全部显示 unknown（issue #1，v1.7.4 实测后反馈）**。v1.7.4 将 GET 切到官方实时端点 `ADevGetStatusInfoLD5C` 后，控制字段（开关/模式/风量）已实时同步，但**该端点的传感器字段对 LD5C 全是无效哨兵**（65535/255/127），导致全部传感器 unknown——设备真实传感器数据由 MidERV 端点提供。v1.7.5 改为**混合数据源**：控制字段读 Info GET（实时），传感器读 MidERV GET（真实值）按白名单合并，互不覆盖。
+- **LD5C 传感器收敛为设备实际存在的 4 项**（室外 PM2.5 / 室外温度 / 室外湿度 / 回风滤网剩余寿命）：通过 `SENSOR_KEYS_BY_SUBTYPE` 白名单控制，送风/回风 PM2.5 等该机型不存在的字段不再创建 unknown 实体。
+- 其他协议（SmallERV/MidERV/DCERV）不受影响。
+
 ## 1.7.4
 
 - **修复 LD5C 状态读取不同步（issue #1，v1.7.3 实测后反馈）**。v1.7.3 控制已真实生效（开关/模式/风量均可控制设备），但 UI 仍会在几秒后跳回关闭/unknown——根因：状态读取仍走「MidERV 端点 + 设备列表 statusAll 合并」，而 statusAll 是**云端缓存**，控制命令执行后不刷新（仅面板操作时同步）。v1.7.4 将 LD5C 的 GET 一并切换到官方实时端点 **`ADevGetStatusInfoLD5C`**（与 SET 同属 Info 家族，官方 Web 控制页即以此显示实时状态），长驼峰字段（`runningStatus`/`runningMode`/`airVolume` + 传感器）映射为内部字段名。

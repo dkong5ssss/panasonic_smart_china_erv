@@ -196,6 +196,16 @@ SENSOR_KEYS_BY_SUBTYPE = {
         "saFilExTL",
         "raFilExTL",
     ),
+    # LD5C (FY-25ZDP1C) only reports outdoor sensors + return-filter life;
+    # the rest of the Info/MidERV response fields are invalid sentinels
+    # (65535/255/127) on this model, so only expose what actually exists
+    # (v1.7.5, issue #1).
+    DEVICE_SUBTYPE_LD5C: (
+        "oaPMC",
+        "oaHumC",
+        "oaTeC",
+        "raFilExTL",
+    ),
 }
 
 # Protocol sentinels are field-specific: 255 can be a valid PM2.5 reading, while
@@ -649,6 +659,16 @@ SUPPORTED_ERV_SUBTYPES = {
         "uses_status_all": False,
         "status_all_field_map": LD5C_STATUS_ALL_FIELD_MAP,
         "status_identity_top_level": True,
+        # The live Info GET returns real-time control state but its sensor
+        # fields are invalid sentinels on LD5C; real sensor readings come from
+        # the MidERV GET endpoint (v1.7.5, issue #1).
+        "aux_get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
+        "aux_sensor_keys": (
+            "oaPMC",
+            "oaHumC",
+            "oaTeC",
+            "raFilExTL",
+        ),
         "set_field_name_map": LD5C_SET_FIELD_NAME_MAP,
         "set_identity_top_level": True,
         "use_xtoken_header": True,
