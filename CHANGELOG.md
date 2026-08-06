@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.2
+
+- **修复运行时探测把 SmallERV/MidERV 误判为 LD5C 的回归（实测发现）**。根因：LD5C 的运行时签名用了映射后的内部字段名（`runSta`/`runM`/`airVo`），而实时状态端点（`ADevGetStatusMidERV`）对**任何**设备都会返回这些通用字段，导致 SmallERV 设备在探测评分中误命中 LD5C 签名而被错误切换协议。现改为只按 `statusAll` 原始字段（`runningStatus`/`runningMode`/`airVolume`/`holidayMode`/`windPath`）判定 LD5C，与配置流程的指纹表保持一致。已误判设备会在下次轮询自动收敛回正确协议。
+- **LD5C statusAll 不再依赖 familyId 硬守卫**：部分账号的登录响应（UsrLogin）不返回 `familyId`/`realFamilyId`（issue #1 中 iamkloudz 实测），而 `UsrGetBindDevInfo` 设备列表接口在参数为空时仍能正常返回——现在缺失 familyId 时也照常发起请求，成功即用、失败才降级，不再每 30 秒重复告警。此类账号也无需再删除重加集成。
+- **探测全失败时先静默重登再报错**：认证类错误（4102 / 3003 / 3004，SSID 过期）时先尝试用配置项内保存的账号密码静默重登刷新会话，下一次轮询即可用新会话恢复，避免连续报错。
+
 ## 1.7.1
 
 - **修复 LD5C 设备升级后仍无法控制的问题（issue #1）**。根因：v1.6.0 起 LD5C 控制状态需要从设备列表接口读取，该接口必须携带登录时返回的 `familyId` / `realFamilyId`，但旧版本（≤1.5.0）创建的配置项里没有保存这两个字段，导致 `statusAll` 每次轮询都失败，`runSta` / `runM` / `airVo` 停留在默认值。

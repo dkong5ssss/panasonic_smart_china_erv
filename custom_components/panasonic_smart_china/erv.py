@@ -68,6 +68,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._device_subtype = config.get(CONF_DEVICE_SUBTYPE, DEVICE_SUBTYPE_SMALL_ERV)
         self._apply_protocol(self._device_subtype)
         self._last_params = self._default_params.copy()
+        self._last_status_all_raw: dict = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -401,9 +402,21 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
             merged = protocol["default_params"].copy()
             merged.update(results)
-            signature_score = sum(
-                1 for key in protocol.get("signature_keys", set()) if key in results
-            )
+            if protocol.get("uses_status_all"):
+                # LD5C signature must be judged on the RAW statusAll payload
+                # keys (runningStatus/runningMode/airVolume...). The mapped
+                # names (runSta/runM/airVo) collide with common fields that
+                # the live MidERV endpoint returns for EVERY device, which
+                # would misclassify SmallERV/MidERV devices as LD5C.
+                raw_status_all = self._last_status_all_raw or {}
+                raw_keys = set(protocol.get("status_all_field_map", {}).keys())
+                signature_score = sum(
+                    1 for key in raw_keys if key in raw_status_all
+                )
+            else:
+                signature_score = sum(
+                    1 for key in protocol.get("signature_keys", set()) if key in results
+                )
             known_run_mode = self._known_run_mode_score(protocol, results)
             # Probe all known protocols and prefer the richest signature match.
             # This avoids pinning MidERV-capable devices to SmallERV just because
@@ -421,6 +434,14 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
         if not candidates:
             if probe_errors:
+                # Auth-related failures (e.g. 4102 认证错误 / 3003 / 3004)
+                # mean the session went stale. Give the silent re-login a
+                # chance to refresh credentials before surfacing the error;
+                # the next poll retries with the fresh session.
+                try:
+                    await self._try_self_heal_family_id()
+                except Exception:  # noqa: BLE001
+                    pass
                 raise RuntimeError(
                     f"Could not fetch ERV status for {self._device_id}: {probe_errors[-1][1]}"
                 )
@@ -471,6 +492,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             if json_data is None:
                 return None
             status_all = await self._request_status_all()
+            # Keep the raw payload around so the probe loop can score the
+            # LD5C signature against its own field names instead of the
+            # mapped runSta/runM/airVo (which every endpoint returns).
+            self._last_status_all_raw = status_all or {}
             if status_all:
                 mapped = {
                     internal: status_all[external]
@@ -492,18 +517,19 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
         Requires familyId/realFamilyId, stored in the config entry by the
         config flow (or self-healed via a silent re-login since v1.7.1).
-        Returns None when they are unavailable.
+        Some accounts never receive familyId in the UsrLogin response, yet
+        UsrGetBindDevInfo still answers the device list without it (the
+        params are tolerated as null), so we send the request anyway
+        instead of bailing out when they are missing.
+        Returns None when the request fails.
         """
         if not self._family_id or not self._real_family_id:
             healed = await self._try_self_heal_family_id()
             if not healed:
-                _LOGGER.warning(
-                    "LD5C statusAll requires familyId/realFamilyId for %s; "
-                    "delete the integration and re-add it once with your "
-                    "Panasonic account (v1.7.1+) to store credentials",
+                _LOGGER.debug(
+                    "No familyId stored for %s; requesting statusAll without it",
                     self._device_id,
                 )
-                return None
 
         payload = {
             "id": 3,
