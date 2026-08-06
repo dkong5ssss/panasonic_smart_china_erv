@@ -8,7 +8,10 @@ from .erv import async_get_coordinator
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Panasonic ERV switch entities."""
     coordinator = await async_get_coordinator(hass, entry)
-    async_add_entities([PanasonicERVHolidaySwitch(coordinator, entry.title)])
+    entities = []
+    if coordinator.supports_holiday_switch:
+        entities.append(PanasonicERVHolidaySwitch(coordinator, entry.title))
+    async_add_entities(entities)
 
 
 class PanasonicERVHolidaySwitch(CoordinatorEntity, SwitchEntity):

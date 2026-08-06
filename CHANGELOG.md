@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.3
+
+- **修复 LD5C（FY-25ZDP1C）控制完全不生效的问题（issue #1，实测根因）**。此前控制命令走 `ADevSetStatusMidERV` 端点、字段用 MidERV 风格的短名（`runSta`/`runM`/`airVo`）——云端接收请求并返回成功，但 LD5C 设备不认这套字段，命令被静默丢弃，表现为"UI 点击后几秒自动回退、硬件无反应"。经排查松下官方 Web 控制页（`app.psmartcloud.com/ca/cn/0800/LD5C/`，无 SSL pinning，页面 JS 即官方协议源码）确认：LD5C 的专用控制端点是 **`ADevSetStatusInfoLD5C`**（此前社区探测的 `ADevSetStatusLD5C` 因少了 `Info` 而 404 被误排除），字段为设备原生长驼峰名（`runningStatus`/`runningMode`/`airVolume`/`heatingMode`/`pPressureMode`/`autoSensitivity`/滤网周期/定时器等 19 项），每次请求发送完整字段表、255=保持（定时器 127=保持）、只改目标字段；身份字段（`usrId`/`deviceId`/`token`）放在请求体顶层，认证头同时携带 `xtoken`。v1.7.3 按官方实现重写 LD5C 控制链路。
+- **LD5C 不再展示假日模式开关**（用户实测 FY-25ZDP1C 官方 App 无假日模式功能；web 页也无此控件）。
+- **控制请求/响应增加 debug 日志（脱敏）**：`ERV set <设备> -> <端点> body=...` 与 `ERV set response <设备>: ...`，便于今后远程排查控制链路。
+- 其他协议（SmallERV/MidERV/DCERV）控制逻辑不受影响（行为不变）。
+
 ## 1.7.2
 
 - **修复运行时探测把 SmallERV/MidERV 误判为 LD5C 的回归（实测发现）**。根因：LD5C 的运行时签名用了映射后的内部字段名（`runSta`/`runM`/`airVo`），而实时状态端点（`ADevGetStatusMidERV`）对**任何**设备都会返回这些通用字段，导致 SmallERV 设备在探测评分中误命中 LD5C 签名而被错误切换协议。现改为只按 `statusAll` 原始字段（`runningStatus`/`runningMode`/`airVolume`/`holidayMode`/`windPath`）判定 LD5C，与配置流程的指纹表保持一致。已误判设备会在下次轮询自动收敛回正确协议。

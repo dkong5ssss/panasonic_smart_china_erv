@@ -103,6 +103,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._set_request_id = protocol.get("set_request_id", 0)
         self._uses_status_all = protocol.get("uses_status_all", False)
         self._status_all_field_map = protocol.get("status_all_field_map", {})
+        self._set_field_name_map = protocol.get("set_field_name_map", {})
+        self._set_identity_top_level = protocol.get("set_identity_top_level", False)
+        self._use_xtoken_header = protocol.get("use_xtoken_header", False)
+        self._supports_holiday_switch = protocol.get("supports_holiday_switch", True)
         self._url_get = protocol["get_url"]
         self._url_set = protocol["set_url"]
 
@@ -165,6 +169,11 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     def supports_control_field(self, field: str) -> bool:
         return field in self._safe_control_keys
+
+    @property
+    def supports_holiday_switch(self) -> bool:
+        """Whether the holiday-mode switch entity should be exposed."""
+        return self._supports_holiday_switch
 
     def field_value(self, field: str):
         return self._last_params.get(field)
@@ -656,20 +665,31 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         refresh: bool = True,
     ) -> None:
         """Send a control request using the selected ERV protocol rules."""
+        # Protocols with a set field map (LD5C) speak their own wire field
+        # names (runningStatus/runningMode/airVolume) and send the full bean
+        # with only the target field changed - exactly like the official
+        # Panasonic web control page - so no live status merge is performed.
+        if self._set_field_name_map:
+            changes = {
+                self._set_field_name_map.get(key, key): value
+                for key, value in changes.items()
+            }
+
         latest_params = None
-        if self._merge_current_status_for_control or self._uses_status_all:
+        if self._merge_current_status_for_control:
             latest_params = await self._fetch_status()
 
         current_params = self._control_params.copy()
-        if self._merge_current_status_for_control or self._uses_status_all:
+        if self._merge_current_status_for_control:
             current_params.update(self._last_params)
             if latest_params:
                 current_params.update(latest_params)
 
         current_params.update(changes)
-        current_params[CONF_DEVICE_ID] = self._device_id
-        current_params[CONF_TOKEN] = self._token
-        current_params[CONF_USR_ID] = self._usr_id
+        if not self._set_identity_top_level:
+            current_params[CONF_DEVICE_ID] = self._device_id
+            current_params[CONF_TOKEN] = self._token
+            current_params[CONF_USR_ID] = self._usr_id
 
         params = {
             key: current_params[key]
@@ -677,18 +697,44 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             if key in current_params
         }
 
+        body = {"id": self._set_request_id, "params": params}
+        if self._set_identity_top_level:
+            # Info-family endpoints expect usrId/deviceId/token at the top
+            # level of the request body (official web page request shape).
+            body = {
+                "id": self._set_request_id,
+                CONF_USR_ID: self._usr_id,
+                CONF_DEVICE_ID: self._device_id,
+                CONF_TOKEN: self._token,
+                "params": params,
+            }
+
+        log_body = {
+            key: ("***" if key == CONF_TOKEN else value)
+            for key, value in body.items()
+        }
+        log_body["params"] = {
+            key: ("***" if key in (CONF_TOKEN, "token") else value)
+            for key, value in params.items()
+        }
+        _LOGGER.debug(
+            "ERV set %s -> %s body=%s",
+            self._device_id,
+            self._url_set,
+            log_body,
+        )
+
         session = async_get_clientsession(self._hass)
         async with async_timeout.timeout(10):
             response = await session.post(
                 self._url_set,
-                json={
-                    "id": self._set_request_id,
-                    "params": params,
-                },
+                json=body,
                 headers=self._get_headers(),
                 ssl=psmartcloud_fingerprint(),
             )
             response_json = await response.json()
+
+        _LOGGER.debug("ERV set response %s: %s", self._device_id, response_json)
 
         error_code = self._response_error_code(response_json)
         if error_code and error_code != "0":
@@ -719,8 +765,13 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         return ""
 
     def _get_headers(self) -> dict:
-        return {
+        headers = {
             "Content-Type": "application/json",
             "User-Agent": "SmartApp",
             "Cookie": f"SSID={self._ssid}",
         }
+        if self._use_xtoken_header:
+            # Info-family endpoints are controlled through the same auth
+            # header the official web control page sends.
+            headers["xtoken"] = f"SSID={self._ssid}"
+        return headers

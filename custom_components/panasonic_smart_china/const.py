@@ -308,17 +308,48 @@ DEFAULT_LD5C_PARAMS = {
     "alarmStatus": 0,
 }
 
-# LD5C control requests reuse the MidERV payload shape (255 = keep current).
-LD5C_CONTROL_PARAMS = {
-    **DEFAULT_LD5C_PARAMS,
-    "runSta": 255,
+# LD5C control requests mirror the official Panasonic web control page
+# (https://app.psmartcloud.com/ca/cn/0800/LD5C/index.html,
+# js/common/api_utility.js): endpoint ADevSetStatusInfoLD5C, long camelCase
+# field names, full bean with 255 = keep current (127 for timer hh/mm), only
+# the target field changed per request. Short MidERV-style names
+# (runSta/runM/airVo) sent to the MidERV set endpoint are silently ignored
+# by the cloud for this device family (issue #1, v1.7.3).
+LD5C_SET_DEFAULT_PARAMS = {
+    "runningStatus": 255,
+    "runningMode": 255,
+    "airVolume": 255,
+    "heatingMode": 255,
+    "pPressureMode": 255,
+    "holidayMode": 255,
+    "autoSensitivity": 255,
+    "oaFilterExist": 255,
+    "saFilterClCycle": 255,
+    "oaFilterClCycle": 255,
+    "saFilterExCycle": 255,
+    "oaFilterExCycle": 255,
+    "saFilterExist": 255,
+    "onTimerSetting": 255,
+    "onTimerHour": 127,
+    "onTimerMinute": 127,
+    "offTimerSetting": 255,
+    "offTimerHour": 127,
+    "offTimerMinute": 127,
 }
 
+# Internal (status) field name -> wire (set payload) field name for LD5C.
+LD5C_SET_FIELD_NAME_MAP = {
+    "runSta": "runningStatus",
+    "runM": "runningMode",
+    "airVo": "airVolume",
+    "holM": "holidayMode",
+    "windPath": "windPath",
+}
+
+# Identity (usrId/deviceId/token) is sent at the top level of the request
+# body for the Info-family endpoints, matching the official web page.
 LD5C_SAFE_CONTROL_KEYS = [
-    CONF_DEVICE_ID,
-    CONF_TOKEN,
-    CONF_USR_ID,
-    *DEFAULT_LD5C_PARAMS.keys(),
+    *LD5C_SET_DEFAULT_PARAMS.keys(),
 ]
 
 # Field names used by the device-list statusAll payload for LD5C, mapped to
@@ -581,15 +612,17 @@ SUPPORTED_ERV_SUBTYPES = {
     },
     DEVICE_SUBTYPE_LD5C: {
         "label": "LD5C",
-        # Control fields (runSta/runM/airVo) are NOT returned by any live
-        # status endpoint for LD5C; they live in the device-list statusAll
-        # payload under runningStatus/runningMode/airVolume. Sensors come
+        # Control state (runningStatus/runningMode/airVolume) is read from
+        # the device-list statusAll payload (UsrGetBindDevInfo); sensors come
         # from the MidERV endpoint. uses_status_all triggers the extra
         # UsrGetBindDevInfo fetch in the coordinator.
+        # SET goes to the dedicated Info-family endpoint with the long
+        # camelCase bean (see LD5C_SET_DEFAULT_PARAMS); the MidERV set
+        # endpoint silently ignored LD5C commands (issue #1, v1.7.3).
         "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
-        "set_url": "https://app.psmartcloud.com/App/ADevSetStatusMidERV",
+        "set_url": "https://app.psmartcloud.com/App/ADevSetStatusInfoLD5C",
         "default_params": DEFAULT_LD5C_PARAMS,
-        "control_params": LD5C_CONTROL_PARAMS,
+        "control_params": LD5C_SET_DEFAULT_PARAMS,
         "merge_current_status_for_control": False,
         "single_field_commands": True,
         "safe_control_keys": LD5C_SAFE_CONTROL_KEYS,
@@ -604,6 +637,10 @@ SUPPORTED_ERV_SUBTYPES = {
         "set_request_id": 0,
         "uses_status_all": True,
         "status_all_field_map": LD5C_STATUS_ALL_FIELD_MAP,
+        "set_field_name_map": LD5C_SET_FIELD_NAME_MAP,
+        "set_identity_top_level": True,
+        "use_xtoken_header": True,
+        "supports_holiday_switch": False,
     },
 }
 
