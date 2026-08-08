@@ -5,6 +5,7 @@ CONF_DEVICE_ID = "deviceId"
 CONF_TOKEN = "token"
 CONF_SSID = "SSID"
 CONF_DEVICE_SUBTYPE = "device_subtype"
+CONF_DEV_SUB_TYPE_ID = "devSubTypeId"
 CONF_DEVICE_TOKEN_OVERRIDE = "device_token_override"
 CONF_FAMILY_ID = "familyId"
 CONF_REAL_FAMILY_ID = "realFamilyId"
@@ -20,6 +21,7 @@ DEVICE_SUBTYPE_SMALL_ERV = "SMALLERV"
 DEVICE_SUBTYPE_MID_ERV = "MIDERV"
 DEVICE_SUBTYPE_MID_ERV_DEHUMID = "MIDERV_DEHUMID"
 DEVICE_SUBTYPE_DC_ERV = "DCERV"
+DEVICE_SUBTYPE_NEW_DC_ERV = "NEWDCERV"
 DEVICE_SUBTYPE_LD5C = "LD5C"
 DEVICE_SUBTYPE_LD6C = "LD6C"
 # AUTO = device not matched by devSubTypeId or statusAll signature at config
@@ -40,6 +42,7 @@ RUN_MODE_DEHUMID = "除湿"
 RUN_MODE_SILENT = "静音"
 RUN_MODE_NORMAL_VENTILATION = "普通换气"
 RUN_MODE_MIXED_AIR = "混风"
+RUN_MODE_DISINFECT = "消毒"
 
 SMALL_ERV_PRESET_TO_AIR_VOLUME = {
     PRESET_LOW: 1,
@@ -105,6 +108,32 @@ LD5C_RUN_MODE_TO_OPTION = {
 LD5C_OPTION_TO_RUN_MODE = {
     option: mode for mode, option in LD5C_RUN_MODE_TO_OPTION.items()
 }
+
+# LD6C run modes from Panasonic App's Ld6cBeanConvert (rudyll repo, 2026-08-08).
+# Unlike MidERV/DCERV there is no sleep mode; disinfect is unique to LD6C.
+LD6C_RUN_MODE_TO_OPTION = {
+    1: RUN_MODE_HEAT_EXCHANGE,
+    4: RUN_MODE_INTERNAL_CIRCULATION,
+    6: RUN_MODE_AUTO_ECO,
+    7: RUN_MODE_DISINFECT,
+}
+
+LD6C_OPTION_TO_RUN_MODE = {
+    option: mode for mode, option in LD6C_RUN_MODE_TO_OPTION.items()
+}
+
+# LD6C air volume (Ld6cBeanConvert): 0=静音, 1=低, 2=高.
+LD6C_PRESET_TO_AIR_VOLUME = {
+    PRESET_LOW: 1,
+    PRESET_HIGH: 2,
+}
+
+LD6C_AIR_VOLUME_TO_PRESET = {
+    1: PRESET_LOW,
+    2: PRESET_HIGH,
+}
+
+LD6C_AIR_VOLUME_STEPS = [0, 1, 2]
 
 DC_ERV_RUN_MODE_TO_OPTION = {
     48: RUN_MODE_HEAT_EXCHANGE,
@@ -211,6 +240,18 @@ LD6C_SIGNATURE_KEYS = {
     "raTvC",
 }
 
+# NEWDCERV (App NewDevSetBean family): shares DCERV's run-mode/air-volume
+# enums but uses its own SET bean and GET endpoint (ADevGetStatusNewDCERV,
+# verified alive 2026-08-08). Signature keys are fields only the NewDCERV
+# bean carries (pmFstFilCl/pmFstFilEx/returnInFilEx/InLoopFilEx), so it never
+# collides with DCERV's coSen/userSupWind/aircJoi keys nor LD6C's co2Sen.
+NEW_DCERV_SIGNATURE_KEYS = {
+    "pmFstFilCl",
+    "pmFstFilEx",
+    "returnInFilEx",
+    "InLoopFilEx",
+}
+
 SENSOR_KEYS_BY_SUBTYPE = {
     DEVICE_SUBTYPE_DC_ERV: (
         "oaPMC",
@@ -248,6 +289,16 @@ SENSOR_KEYS_BY_SUBTYPE = {
         "saFilExTL",
         "raFilExTL",
         "resFilExTL",
+    ),
+    # NEWDCERV shares the DCERV sensor vocabulary; whitelist the outdoor +
+    # filter-life set (invalid sentinels filtered per-field at read time).
+    DEVICE_SUBTYPE_NEW_DC_ERV: (
+        "oaPMC",
+        "oaTeC",
+        "oaHumC",
+        "oaFilExTL",
+        "saFilExTL",
+        "raFilExTL",
     ),
 }
 
@@ -586,23 +637,42 @@ DC_ERV_EXTRA_SELECTS = (
     },
 )
 
-# LD6C (FV-50ZDP2C, issue #4) control params. Same old-protocol shape as
-# DCERV (full bean + merge current status), but with LD6C's own field names:
-# co2Sen (not coSen) and slfSendW/slfOutW (not userSupWind/userExhWind) for
-# custom supply/exhaust airflow. Timer fields match the DCERV naming.
+# LD6C (FV-50ZDP2C, issue #4) control params. Field list from the Panasonic
+# App's Ld6cDevStateSetBean (rudyll repo, 2026-08-08): full old-protocol bean,
+# 255 = keep, timers use 127. Note saFilEx is lowercase on the wire (matches
+# the LD6C GET/statusAll fields; App bean renders it as saFilEX).
 DEFAULT_LD6C_PARAMS = {
-    "runSta": 0,
+    "runSta": 255,
     "runM": 255,
     "airVo": 255,
+    "winDir": 255,
+    "heatM": 255,
+    "nanoe": 255,
     "preSet": 255,
     "preM": 255,
     "holM": 255,
     "pmSen": 255,
     "co2Sen": 255,
     "tvSen": 255,
+    "saFilCl": 255,
+    "oaFilCl": 255,
+    "resFilCl": 255,
+    "saFilEx": 255,
+    "oaFilEx": 255,
+    "resFilEx": 255,
+    "saFilSet": 255,
+    "tSet": 255,
     "slfSendW": 255,
     "slfOutW": 255,
-    "oaFilEx": 255,
+    "airBind": 255,
+    "clFilReset": 255,
+    "saFilExReset": 255,
+    "oaFilExReset": 255,
+    "raFilExReset": 255,
+    "resFilExReset": 255,
+    "dehumid": 255,
+    "humidSet": 255,
+    "breathLight": 255,
 }
 
 for _index in range(1, 7):
@@ -614,11 +684,47 @@ for _index in range(1, 7):
     DEFAULT_LD6C_PARAMS[f"tMin{_index}"] = 127
     DEFAULT_LD6C_PARAMS[f"tWeek{_index}"] = 255
 
+for _index in range(1, 11):
+    DEFAULT_LD6C_PARAMS[f"res{_index}"] = 255
+
 LD6C_SAFE_CONTROL_KEYS = [
     CONF_DEVICE_ID,
     CONF_TOKEN,
     CONF_USR_ID,
     *DEFAULT_LD6C_PARAMS.keys(),
+]
+
+# NEWDCERV control params from the App's NewDevSetBean (rudyll repo): shares
+# DCERV's enums but sends its own field set (nanoe/pmFstFilCl/pmFstFilEx/
+# returnInFilEx/InLoopFilEx). Timers use the 1-6 loop without tM/tWind.
+DEFAULT_NEW_DCERV_PARAMS = {
+    "runSta": 255,
+    "runM": 255,
+    "airVo": 255,
+    "preM": 255,
+    "holM": 255,
+    "autoSen": 255,
+    "nanoe": 255,
+    "oaPMC": 255,
+    "pmFstFilCl": 255,
+    "pmFstFilEx": 255,
+    "oaFilEx": 255,
+    "returnInFilEx": 255,
+    "InLoopFilEx": 255,
+}
+
+for _index in range(1, 7):
+    DEFAULT_NEW_DCERV_PARAMS[f"tSta{_index}"] = 255
+    DEFAULT_NEW_DCERV_PARAMS[f"tSet{_index}"] = 255
+    DEFAULT_NEW_DCERV_PARAMS[f"tH{_index}"] = 127
+    DEFAULT_NEW_DCERV_PARAMS[f"tMin{_index}"] = 127
+    DEFAULT_NEW_DCERV_PARAMS[f"tWeek{_index}"] = 255
+
+NEW_DCERV_SAFE_CONTROL_KEYS = [
+    CONF_DEVICE_ID,
+    CONF_TOKEN,
+    CONF_USR_ID,
+    *DEFAULT_NEW_DCERV_PARAMS.keys(),
 ]
 
 LD6C_EXTRA_SELECTS = (
@@ -669,6 +775,7 @@ PROTOCOL_SIGNATURES = {
         "windPath",
     ),
     DEVICE_SUBTYPE_LD6C: LD6C_SIGNATURE_KEYS,
+    DEVICE_SUBTYPE_NEW_DC_ERV: NEW_DCERV_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_DC_ERV: DC_ERV_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_MID_ERV_DEHUMID: DEHUMID_MID_ERV_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_MID_ERV: MID_ERV_SIGNATURE_KEYS,
@@ -803,17 +910,41 @@ SUPPORTED_ERV_SUBTYPES = {
         "merge_current_status_for_control": True,
         "single_field_commands": False,
         "safe_control_keys": LD6C_SAFE_CONTROL_KEYS,
+        "preset_to_air_volume": LD6C_PRESET_TO_AIR_VOLUME,
+        "air_volume_to_preset": LD6C_AIR_VOLUME_TO_PRESET,
+        "air_volume_steps": LD6C_AIR_VOLUME_STEPS,
+        # LD6C run-mode enum from Panasonic App's Ld6cBeanConvert (rudyll
+        # repo): 1=热交换, 4=内循环, 6=自动ECO, 7=消毒. Air volume: 0=静音,
+        # 1=低, 2=高 (v1.7.7 corrected the v1.7.6 DCERV-style [0,1] guess).
+        "run_mode_to_option": LD6C_RUN_MODE_TO_OPTION,
+        "option_to_run_mode": LD6C_OPTION_TO_RUN_MODE,
+        "signature_keys": LD6C_SIGNATURE_KEYS,
+        "extra_selects": LD6C_EXTRA_SELECTS,
+        "status_request_id": 1,
+        "status_ui_version": 4.0,
+        "set_request_id": 1,
+    },
+    DEVICE_SUBTYPE_NEW_DC_ERV: {
+        "label": "NEWDCERV",
+        # NewDCERV (App NewDevSetBean family): shares DCERV run-mode/air-volume
+        # enums and old-protocol shape, own GET/SET endpoints
+        # (ADevGetStatusNewDCERV / ADevSetStatusNewDCERV, both verified alive
+        # 2026-08-08) and its own SET bean fields. No web control page (0800
+        # family 404) - old-protocol confirmed.
+        "get_url": "https://app.psmartcloud.com/App/ADevGetStatusNewDCERV",
+        "set_url": "https://app.psmartcloud.com/App/ADevSetStatusNewDCERV",
+        "default_params": DEFAULT_NEW_DCERV_PARAMS,
+        "control_params": DEFAULT_NEW_DCERV_PARAMS,
+        "merge_current_status_for_control": True,
+        "single_field_commands": False,
+        "safe_control_keys": NEW_DCERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": DC_ERV_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": DC_ERV_AIR_VOLUME_TO_PRESET,
         "air_volume_steps": DC_ERV_AIR_VOLUME_STEPS,
-        # LD6C run-mode enum is unconfirmed (community ADevSetStatusLD6C
-        # probes with MidERV/DCERV schemas returned todoId without effect);
-        # expose on/off + fan speed + selects first, add run modes once the
-        # real enum is confirmed by a device test (v1.7.7+).
-        "run_mode_to_option": {},
-        "option_to_run_mode": {},
-        "signature_keys": LD6C_SIGNATURE_KEYS,
-        "extra_selects": LD6C_EXTRA_SELECTS,
+        "run_mode_to_option": DC_ERV_RUN_MODE_TO_OPTION,
+        "option_to_run_mode": DC_ERV_OPTION_TO_RUN_MODE,
+        "signature_keys": NEW_DCERV_SIGNATURE_KEYS,
+        "extra_selects": (),
         "status_request_id": 1,
         "status_ui_version": 4.0,
         "set_request_id": 1,
@@ -830,6 +961,7 @@ SUPPORTED_ERV_DEVICE_HINTS = {
     DEVICE_SUBTYPE_MID_ERV,
     DEVICE_SUBTYPE_MID_ERV_DEHUMID,
     DEVICE_SUBTYPE_DC_ERV,
+    DEVICE_SUBTYPE_NEW_DC_ERV,
     DEVICE_SUBTYPE_LD5C,
     DEVICE_SUBTYPE_LD6C,
 }

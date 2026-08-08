@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.7
+
+- **LD6C 运行模式/风量枚举对齐松下 App 反编译数据（issue #4 修正 v1.7.6 猜测）**。数据来自社区对松下 App `Ld6cBeanConvert` 的逆向（rudyll 仓库）：运行模式 **1=热交换 / 4=内循环 / 6=自动ECO / 7=消毒**，风量 **0=静音 / 1=低 / 2=高**（v1.7.6 误用 DCERV 的 0/1 双档，已修正为三档）。LD6C 现在支持运行模式切换（含独有的消毒模式）。
+- **LD6C SET payload 对齐 App `Ld6cDevStateSetBean`**：字段从 12 个扩到完整 bean（31 个控制字段 + 6 组定时器 + res1-10，255=保持/127=定时器保持），覆盖 winDir/heatM/nanoe/dehumid/humidSet/breathLight/airBind/滤网重置等，控制更完整。
+- **新增 NEWDCERV 子类型**（App `NewDevSetBean` 家族）：GET `ADevGetStatusNewDCERV` / SET `ADevSetStatusNewDCERV`（端点存活已验证），独立签名键（`pmFstFilCl`/`pmFstFilEx`/`returnInFilEx`/`InLoopFilEx`，与其他机型零冲突），复用 DCERV 运行模式/风量枚举。
+- **运行时自动端点发现（新机型免发版）**：配置项新增保存云端 `devSubTypeId`；未识别机型（AUTO）启动后自动探测其专属端点 `ADevGetStatus{devSubTypeId}` / `ADevSetStatus{devSubTypeId}`，按响应字段数自动胜出——**新机型无需等待发版即可读取状态和传感器**，控制先用 LD6C 完整 bean 兜底。识别出的新机型只需补枚举映射即可正式收录。
+- 其他协议（SmallERV/MidERV/DCERV/LD5C/NEWDCERV）不受影响。
+
 ## 1.7.6
 
 - **新增 LD6C 子类型协议支持（issue #4，FV-50ZDP2C）**。用户诊断报告确认该机型云端 `devSubTypeId` 为 `LD6C`，此前被 DCERV 签名部分命中而误选 DCERV 协议——但 DCERV 的 GET 端点对 LD6C 设备返回的全是无效哨兵值（65535/127/255），导致传感器 unknown、自定义送/排风不可用。

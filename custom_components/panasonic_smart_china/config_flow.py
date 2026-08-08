@@ -12,6 +12,7 @@ from .api import authenticate
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_TOKEN_OVERRIDE,
+    CONF_DEV_SUB_TYPE_ID,
     CONF_FAMILY_ID,
     CONF_REAL_FAMILY_ID,
     CONF_SSID,
@@ -173,6 +174,7 @@ class PanasonicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SSID: self._login_data[CONF_SSID],
                         CONF_DEVICE_ID: selected_dev_id,
                         CONF_DEVICE_SUBTYPE: device_subtype,
+                        CONF_DEV_SUB_TYPE_ID: dev_info.get("devSubTypeId"),
                         CONF_TOKEN: token,
                         CONF_FAMILY_ID: self._temp_login_info.get(CONF_FAMILY_ID),
                         CONF_REAL_FAMILY_ID: self._temp_login_info.get(

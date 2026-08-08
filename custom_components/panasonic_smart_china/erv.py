@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 import logging
+import re
 import time
 
 import async_timeout
@@ -15,13 +16,16 @@ from .api import authenticate
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_SUBTYPE,
+    CONF_DEV_SUB_TYPE_ID,
     CONF_FAMILY_ID,
     CONF_REAL_FAMILY_ID,
     CONF_SSID,
     CONF_TOKEN,
     CONF_USR_ID,
+    DEFAULT_LD6C_PARAMS,
     DEVICE_SUBTYPE_SMALL_ERV,
     DOMAIN,
+    LD6C_SAFE_CONTROL_KEYS,
     PRESET_LOW,
     RELOGIN_COOLDOWN_SECONDS,
     SUPPORTED_ERV_SUBTYPES,
@@ -66,6 +70,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._username = config.get(CONF_USERNAME)
         self._password = config.get(CONF_PASSWORD)
         self._device_subtype = config.get(CONF_DEVICE_SUBTYPE, DEVICE_SUBTYPE_SMALL_ERV)
+        # Vendor devSubTypeId (e.g. "LD7C") stored since v1.7.7; lets the
+        # runtime probe build dynamic endpoints for models not yet in
+        # SUPPORTED_ERV_SUBTYPES instead of waiting for a release.
+        self._dev_sub_type_id = config.get(CONF_DEV_SUB_TYPE_ID)
         self._apply_protocol(self._device_subtype)
         self._last_params = self._default_params.copy()
         self._last_status_all_raw: dict = {}
@@ -77,14 +85,22 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             update_interval=POLLING_INTERVAL,
         )
 
-    def _apply_protocol(self, device_subtype: str) -> None:
-        """Load endpoint and payload rules for the selected ERV subtype."""
-        # AUTO devices have not been pinned to a protocol yet; start with the
-        # SmallERV rules and let the runtime probe loop converge on the real
-        # subtype on the first fetch.
-        if device_subtype not in SUPPORTED_ERV_SUBTYPES:
-            device_subtype = DEVICE_SUBTYPE_SMALL_ERV
-        protocol = SUPPORTED_ERV_SUBTYPES[device_subtype]
+    def _apply_protocol(self, device_subtype: str, protocol: dict | None = None) -> None:
+        """Load endpoint and payload rules for the selected ERV subtype.
+
+        When ``protocol`` is passed (dynamic endpoint discovery for models not
+        yet in SUPPORTED_ERV_SUBTYPES), it is used verbatim; otherwise the
+        subtype is looked up in the registry with the AUTO fallback to
+        SmallERV rules so the runtime probe loop can converge on the real
+        protocol on the first fetch.
+        """
+        if protocol is None:
+            # AUTO devices have not been pinned to a protocol yet; start with
+            # the SmallERV rules and let the runtime probe loop converge on
+            # the real subtype on the first fetch.
+            if device_subtype not in SUPPORTED_ERV_SUBTYPES:
+                device_subtype = DEVICE_SUBTYPE_SMALL_ERV
+            protocol = SUPPORTED_ERV_SUBTYPES[device_subtype]
         self._device_subtype = device_subtype
         self._default_params = protocol["default_params"]
         self._control_params = protocol["control_params"]
@@ -112,6 +128,44 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._supports_holiday_switch = protocol.get("supports_holiday_switch", True)
         self._url_get = protocol["get_url"]
         self._url_set = protocol["set_url"]
+
+    def _dynamic_protocol(self) -> dict | None:
+        """Build a probe protocol for an unrecognized vendor devSubTypeId.
+
+        New models not yet in SUPPORTED_ERV_SUBTYPES get their own vendor
+        endpoints probed (ADevGetStatus{ID} / ADevSetStatus{ID}). The GET
+        probe scores by response field count, so the device's own endpoint
+        (richest payload) wins automatically - status/sensor reads work
+        without a code release. Control reuses the LD6C bean (the richest
+        old-protocol schema) as a best-effort default until the real SET
+        schema is confirmed for the model.
+        """
+        if self._device_subtype in SUPPORTED_ERV_SUBTYPES:
+            return None
+        sub_type = str(self._dev_sub_type_id or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_]+", sub_type):
+            return None
+        dynamic_subtype = f"DYNAMIC-{sub_type}"
+        return {
+            "label": dynamic_subtype,
+            "get_url": f"https://app.psmartcloud.com/App/ADevGetStatus{sub_type}",
+            "set_url": f"https://app.psmartcloud.com/App/ADevSetStatus{sub_type}",
+            "default_params": DEFAULT_LD6C_PARAMS,
+            "control_params": DEFAULT_LD6C_PARAMS,
+            "merge_current_status_for_control": True,
+            "single_field_commands": False,
+            "safe_control_keys": LD6C_SAFE_CONTROL_KEYS,
+            "preset_to_air_volume": {},
+            "air_volume_to_preset": {},
+            "air_volume_steps": [],
+            "run_mode_to_option": {},
+            "option_to_run_mode": {},
+            "signature_keys": frozenset(),
+            "extra_selects": (),
+            "status_request_id": 1,
+            "status_ui_version": 4.0,
+            "set_request_id": 1,
+        }
 
     @property
     def device_id(self) -> str:
@@ -363,11 +417,22 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             if subtype not in probe_order:
                 probe_order.append(subtype)
 
+        # Unrecognized models (AUTO or unknown subtype with a vendor
+        # devSubTypeId) get their own vendor endpoints probed last so status
+        # reads work before a release adds the model (v1.7.7).
+        dynamic_protocol = self._dynamic_protocol()
+        dynamic_subtype = dynamic_protocol["label"] if dynamic_protocol else None
+        if dynamic_subtype:
+            probe_order.append(dynamic_subtype)
+
         candidates: list[tuple[int, int, int, int, str, dict]] = []
         probe_errors = []
 
         for subtype in probe_order:
-            protocol = SUPPORTED_ERV_SUBTYPES[subtype]
+            if subtype == dynamic_subtype and dynamic_protocol is not None:
+                protocol = dynamic_protocol
+            else:
+                protocol = SUPPORTED_ERV_SUBTYPES[subtype]
             try:
                 json_data = await self._request_status(protocol)
             except Exception as err:
@@ -438,7 +503,17 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 signature_score = sum(
                     1 for key in protocol.get("signature_keys", set()) if key in results
                 )
-            known_run_mode = self._known_run_mode_score(protocol, results)
+            if subtype == dynamic_subtype:
+                # Dynamic candidates (unrecognized devSubTypeId) win by
+                # response field count: the device's own vendor endpoint
+                # returns the richest payload by definition. known_run_mode
+                # is also forced to the top: the device's own endpoint must
+                # beat known-protocol guesses (whose runM hit may be a
+                # generic-field coincidence, e.g. LD6C runM=1 in DCERV map).
+                signature_score = len(results)
+                known_run_mode = 1
+            else:
+                known_run_mode = self._known_run_mode_score(protocol, results)
             # Probe all known protocols and prefer the richest signature match.
             # This avoids pinning MidERV-capable devices to SmallERV just because
             # the generic SmallERV endpoint returned a partial response first.
@@ -471,13 +546,23 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         _, _, _, _, detected_subtype, merged = max(candidates)
 
         if detected_subtype != self._device_subtype:
-            _LOGGER.info(
-                "Detected ERV subtype %s for device %s",
-                detected_subtype,
-                self._device_id,
-            )
-            self._apply_protocol(detected_subtype)
-            self._persist_detected_subtype(detected_subtype)
+            if detected_subtype == dynamic_subtype:
+                # Unrecognized model: use its own endpoints but keep the
+                # configured subtype (AUTO) so discovery re-runs on restart.
+                _LOGGER.info(
+                    "Using dynamic vendor endpoints for device %s (devSubTypeId=%s)",
+                    self._device_id,
+                    self._dev_sub_type_id,
+                )
+                self._apply_protocol(detected_subtype, dynamic_protocol)
+            else:
+                _LOGGER.info(
+                    "Detected ERV subtype %s for device %s",
+                    detected_subtype,
+                    self._device_id,
+                )
+                self._apply_protocol(detected_subtype)
+                self._persist_detected_subtype(detected_subtype)
 
         self._last_params = merged
         self.data = merged
