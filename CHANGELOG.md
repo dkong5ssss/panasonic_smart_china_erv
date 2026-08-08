@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.6
+
+- **新增 LD6C 子类型协议支持（issue #4，FV-50ZDP2C）**。用户诊断报告确认该机型云端 `devSubTypeId` 为 `LD6C`，此前被 DCERV 签名部分命中而误选 DCERV 协议——但 DCERV 的 GET 端点对 LD6C 设备返回的全是无效哨兵值（65535/127/255），导致传感器 unknown、自定义送/排风不可用。
+- **LD6C 使用自己的端点**：GET `ADevGetStatusLD6C`（返回 134 个字段，含真实控制状态与传感器值）、SET `ADevSetStatusLD6C`（老协议短名风格）。已实测确认：无 Info 家族变体（`ADevSetStatusInfoLD6C` / `ADevGetStatusInfoLD6C` 均 404）、无官方 Web 控制页（`0800/LD6C` 404）——LD6C 确认走老协议，与 LD5C（Info 家族）不同。
+- **识别签名用 LD6C 独有字段**（`autoAirVo`/`breathLight`/`co2Sen`/`nanoe`/`slfSendW`/`venAirVo`/`winDir` 等 22 个），与 DCERV（`coSen`/`userSupWind`/`aircJoi`）、MidERV（`HeatM`/`autoSen`）、LD5C（长驼峰名）零冲突，不会把别的机型误判为 LD6C，也不会再让 LD6C 落回 DCERV。
+- **LD6C 传感器收敛为设备实际存在的 7 项**：室外 PM2.5 / 温度 / 湿度 + 外滤网、送风滤网、回风滤网、恢复滤网剩余寿命（送/回风 PM2.5、CO2、TVOC 等该机型不存在的字段不再创建 unknown 实体）。
+- **LD6C 控制**：开关、风量（DCERV 风格弱/强）、压差模式/正压强度、自定义送/排风量（`slfSendW`/`slfOutW`，preSet=自定义模式时可用）。**运行模式枚举尚未实测确认，暂不暴露**（社区探测 `ADevSetStatusLD6C` 返回 todoId 但设备不动作，疑似字段词汇问题——待实机确认枚举后补模式切换，v1.7.7+）。
+- 其他协议（SmallERV/MidERV/DCERV/LD5C）不受影响。
+
 ## 1.7.5
 
 - **修复 LD5C 传感器全部显示 unknown（issue #1，v1.7.4 实测后反馈）**。v1.7.4 将 GET 切到官方实时端点 `ADevGetStatusInfoLD5C` 后，控制字段（开关/模式/风量）已实时同步，但**该端点的传感器字段对 LD5C 全是无效哨兵**（65535/255/127），导致全部传感器 unknown——设备真实传感器数据由 MidERV 端点提供。v1.7.5 改为**混合数据源**：控制字段读 Info GET（实时），传感器读 MidERV GET（真实值）按白名单合并，互不覆盖。

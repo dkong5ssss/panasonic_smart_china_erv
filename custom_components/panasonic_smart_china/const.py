@@ -21,6 +21,7 @@ DEVICE_SUBTYPE_MID_ERV = "MIDERV"
 DEVICE_SUBTYPE_MID_ERV_DEHUMID = "MIDERV_DEHUMID"
 DEVICE_SUBTYPE_DC_ERV = "DCERV"
 DEVICE_SUBTYPE_LD5C = "LD5C"
+DEVICE_SUBTYPE_LD6C = "LD6C"
 # AUTO = device not matched by devSubTypeId or statusAll signature at config
 # time; the runtime probe loop in the coordinator will converge on a real
 # protocol on the first fetch and persist it back to the config entry.
@@ -180,6 +181,36 @@ LD5C_SIGNATURE_KEYS = {
     "airVo",
 }
 
+# LD6C (e.g. FV-50ZDP2C, issue #4): full-fat old-protocol ERV with its own
+# ADevGetStatusLD6C GET endpoint returning 134 short-name fields. Signature
+# keys are fields ONLY present in LD6C responses - generic short names like
+# runSta/runM/airVo or DCERV-shared names (coSen/userSupWind/aircJoi) would
+# misclassify LD6C as DCERV (the v1.7.2 short-name collision lesson).
+LD6C_SIGNATURE_KEYS = {
+    "airBind",
+    "autoAirVo",
+    "breathLight",
+    "co2Re",
+    "co2Sen",
+    "disinfectAirVo",
+    "engySa",
+    "heatM",
+    "hotAirVo",
+    "humidSet",
+    "linkStatus",
+    "loopAirVo",
+    "nanoe",
+    "remRunM",
+    "saFilSet",
+    "slfOutW",
+    "slfSendW",
+    "venAirVo",
+    "winDir",
+    "winP",
+    "raCo2C",
+    "raTvC",
+}
+
 SENSOR_KEYS_BY_SUBTYPE = {
     DEVICE_SUBTYPE_DC_ERV: (
         "oaPMC",
@@ -205,6 +236,18 @@ SENSOR_KEYS_BY_SUBTYPE = {
         "oaHumC",
         "oaTeC",
         "raFilExTL",
+    ),
+    # LD6C (FV-50ZDP2C, issue #4): ADevGetStatusLD6C returns real readings
+    # for outdoor sensors + filter lives; supply/return air PM2.5, CO2, TVOC
+    # and humidity are invalid sentinels on this model.
+    DEVICE_SUBTYPE_LD6C: (
+        "oaPMC",
+        "oaTeC",
+        "oaHumC",
+        "oaFilExTL",
+        "saFilExTL",
+        "raFilExTL",
+        "resFilExTL",
     ),
 }
 
@@ -543,6 +586,75 @@ DC_ERV_EXTRA_SELECTS = (
     },
 )
 
+# LD6C (FV-50ZDP2C, issue #4) control params. Same old-protocol shape as
+# DCERV (full bean + merge current status), but with LD6C's own field names:
+# co2Sen (not coSen) and slfSendW/slfOutW (not userSupWind/userExhWind) for
+# custom supply/exhaust airflow. Timer fields match the DCERV naming.
+DEFAULT_LD6C_PARAMS = {
+    "runSta": 0,
+    "runM": 255,
+    "airVo": 255,
+    "preSet": 255,
+    "preM": 255,
+    "holM": 255,
+    "pmSen": 255,
+    "co2Sen": 255,
+    "tvSen": 255,
+    "slfSendW": 255,
+    "slfOutW": 255,
+    "oaFilEx": 255,
+}
+
+for _index in range(1, 7):
+    DEFAULT_LD6C_PARAMS[f"tSta{_index}"] = 255
+    DEFAULT_LD6C_PARAMS[f"tM{_index}"] = 255
+    DEFAULT_LD6C_PARAMS[f"tWind{_index}"] = 255
+    DEFAULT_LD6C_PARAMS[f"tSet{_index}"] = 255
+    DEFAULT_LD6C_PARAMS[f"tH{_index}"] = 127
+    DEFAULT_LD6C_PARAMS[f"tMin{_index}"] = 127
+    DEFAULT_LD6C_PARAMS[f"tWeek{_index}"] = 255
+
+LD6C_SAFE_CONTROL_KEYS = [
+    CONF_DEVICE_ID,
+    CONF_TOKEN,
+    CONF_USR_ID,
+    *DEFAULT_LD6C_PARAMS.keys(),
+]
+
+LD6C_EXTRA_SELECTS = (
+    {
+        "field": "preSet",
+        "options": {0: "标准模式", 1: "正压模式", 2: "自定义模式"},
+        "suffix": "pressure_mode",
+        "name_suffix": "压差模式",
+        "icon": "mdi:gauge",
+    },
+    {
+        "field": "preM",
+        "options": {0: "弱", 1: "中", 2: "强"},
+        "suffix": "pressure_level",
+        "name_suffix": "正压强度",
+        "icon": "mdi:gauge-low",
+        "available_when": {"field": "preSet", "value": 1},
+    },
+    {
+        "field": "slfSendW",
+        "options": {0: "0%", 20: "20%", 40: "40%", 60: "60%", 80: "80%", 100: "100%"},
+        "suffix": "supply_wind",
+        "name_suffix": "自定义送风量",
+        "icon": "mdi:arrow-up-circle-outline",
+        "available_when": {"field": "preSet", "value": 2},
+    },
+    {
+        "field": "slfOutW",
+        "options": {0: "0%", 20: "20%", 40: "40%", 60: "60%", 80: "80%", 100: "100%"},
+        "suffix": "exhaust_wind",
+        "name_suffix": "自定义排风量",
+        "icon": "mdi:arrow-down-circle-outline",
+        "available_when": {"field": "preSet", "value": 2},
+    },
+)
+
 # Data-driven protocol detection. Vendor model strings are deliberately NOT
 # used (substring model matching misidentified FY-25ZDP1C as MidERV); instead
 # each protocol declares the statusAll/status field keys that identify it.
@@ -556,6 +668,7 @@ PROTOCOL_SIGNATURES = {
         "holidayMode",
         "windPath",
     ),
+    DEVICE_SUBTYPE_LD6C: LD6C_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_DC_ERV: DC_ERV_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_MID_ERV_DEHUMID: DEHUMID_MID_ERV_SIGNATURE_KEYS,
     DEVICE_SUBTYPE_MID_ERV: MID_ERV_SIGNATURE_KEYS,
@@ -674,6 +787,37 @@ SUPPORTED_ERV_SUBTYPES = {
         "use_xtoken_header": True,
         "supports_holiday_switch": False,
     },
+    DEVICE_SUBTYPE_LD6C: {
+        "label": "LD6C",
+        # LD6C (FV-50ZDP2C, issue #4) is an old-protocol ERV like DCERV: its
+        # own short-name GET endpoint (ADevGetStatusLD6C, 134 fields) returns
+        # real control + sensor values, and SET uses ADevSetStatusLD6C with
+        # the DCERV-style full bean (merge current status, 255 = keep).
+        # Endpoint liveness verified 2026-08-08: no Info-family variants exist
+        # (ADevSetStatusInfoLD6C/ADevGetStatusInfoLD6C both 404) and no web
+        # control page (0800/LD6C 404) - old-protocol confirmed.
+        "get_url": "https://app.psmartcloud.com/App/ADevGetStatusLD6C",
+        "set_url": "https://app.psmartcloud.com/App/ADevSetStatusLD6C",
+        "default_params": DEFAULT_LD6C_PARAMS,
+        "control_params": DEFAULT_LD6C_PARAMS,
+        "merge_current_status_for_control": True,
+        "single_field_commands": False,
+        "safe_control_keys": LD6C_SAFE_CONTROL_KEYS,
+        "preset_to_air_volume": DC_ERV_PRESET_TO_AIR_VOLUME,
+        "air_volume_to_preset": DC_ERV_AIR_VOLUME_TO_PRESET,
+        "air_volume_steps": DC_ERV_AIR_VOLUME_STEPS,
+        # LD6C run-mode enum is unconfirmed (community ADevSetStatusLD6C
+        # probes with MidERV/DCERV schemas returned todoId without effect);
+        # expose on/off + fan speed + selects first, add run modes once the
+        # real enum is confirmed by a device test (v1.7.7+).
+        "run_mode_to_option": {},
+        "option_to_run_mode": {},
+        "signature_keys": LD6C_SIGNATURE_KEYS,
+        "extra_selects": LD6C_EXTRA_SELECTS,
+        "status_request_id": 1,
+        "status_ui_version": 4.0,
+        "set_request_id": 1,
+    },
 }
 
 SUPPORTED_ERV_CATEGORIES = {
@@ -687,4 +831,5 @@ SUPPORTED_ERV_DEVICE_HINTS = {
     DEVICE_SUBTYPE_MID_ERV_DEHUMID,
     DEVICE_SUBTYPE_DC_ERV,
     DEVICE_SUBTYPE_LD5C,
+    DEVICE_SUBTYPE_LD6C,
 }
