@@ -167,6 +167,21 @@ class AccountDataTests(unittest.TestCase):
         self.assertIn("3003", AUTH_ERROR_CODES)
         self.assertIn("3004", AUTH_ERROR_CODES)
 
+    def test_cabinet_protocol_registered_and_beats_ld5c_score(self):
+        self.assertIn("CABINET", const.SUPPORTED_ERV_SUBTYPES)
+        self.assertIn("CABINET", const.SUPPORTED_ERV_DEVICE_HINTS)
+        protocol = const.SUPPORTED_ERV_SUBTYPES["CABINET"]
+        self.assertTrue(protocol["uses_status_all"])
+        self.assertIn("InfoFloorPlacedERV", protocol["set_url"])
+        self.assertGreater(
+            len(const.CABINET_STATUS_ALL_FIELD_MAP),
+            len(const.LD5C_STATUS_ALL_FIELD_MAP),
+        )
+        self.assertGreater(
+            len(const.CABINET_SIGNATURE_KEYS),
+            len(const.PROTOCOL_SIGNATURES["LD5C"]),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

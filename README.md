@@ -21,7 +21,7 @@
 - 复用松下智能家电原始登录 / 会话流程
 - 复用厂商前端网页中的设备 Token 生成逻辑
 - 支持 `0800` 与 `0850` 分类的新风设备
-- 支持 `SmallERV`、`MidERV`、`MidERV Dehumid`、`DCERV-03`、`NEWDCERV`、`LD5C` 与 `LD6C` 系列子类型
+- 支持 `SmallERV`、`MidERV`、`MidERV Dehumid`、`DCERV-03`、`NEWDCERV`、`LD5C`、`LD6C` 与 `CABINET` 系列子类型
 - **自动识别设备协议**：登录后根据云端 `devSubTypeId` 与设备 `statusAll` 字段签名自动匹配协议，无需维护型号白名单；未识别设备也可添加，由运行时探测自动收敛
 - 在 Home Assistant 中以 `fan` 实体形式提供控制
 - 支持开关机与风量档位切换
@@ -43,6 +43,7 @@
 | FY-25ZDP1C 等 | `LD5C` | `0800` | 支持开关、风量、运行模式（热交换 / 内循环 / 外循环） |
 | FV-35ZXC1C / 35ZXC1C | `MIDERV_DEHUMID` | `0800` | 支持除湿型 MidERV 精简控制 payload |
 | FV-50ZDP2C 等 | `LD6C` | `0800` | 支持开关、风量（静音/低/高）、运行模式（热交换/内循环/自动ECO/消毒）、压差模式、自定义送排风和传感器 |
+| FY-50ZR1C 等柜式 | `CABINET*` | `0800` | 支持开关、风量（低/中/高）、运行模式（热交换/外循环/内循环/睡眠/自动ECO）、假日模式和传感器。控制走 `statusAll` 缓存（最多约 30 秒延迟），传感器走 MidERV 实时端点；SET 使用 `ADevSetStatusInfoFloorPlacedERV` |
 | 其他未知机型 | 自动识别 | `0800` | 自动探测专属端点读取状态，无需等待发版（枚举映射待确认后正式收录） |
 | SmallERV 系列 | `SMALLERV*` | `0850` | 支持开关和风量控制 |
 
@@ -95,6 +96,8 @@ PMS_USER='松下智家账号' PMS_PASS='松下智家密码' python tools/probe_e
 ```
 
 脚本会生成 `endpoint_report_*.json`，自动隐藏账号、会话、token 和设备唯一标识。可以把该 JSON 附加到 GitHub issue，帮助确认真实 `devSubTypeId`、`statusAll` 字段和各 GET 端点返回内容。
+
+排查控制命令被云端静默丢弃时，可用 `tools/probe_set_endpoints.py` 探测 Info 家族 SET 端点（会发送保持当前状态的幂等 SET，不会改设备运行状态）。
 
 ## 注意事项
 

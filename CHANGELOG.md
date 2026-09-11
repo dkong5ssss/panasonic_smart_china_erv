@@ -6,6 +6,8 @@
 - **自动迁移**：升级后会把旧的「一设备一条集成」条目按账号合并。实体 `unique_id` 仍按 `panasonic_{deviceId}` 生成，entity_id 保持不变。合并完成后只保留一条「Panasonic {手机号}」集成。
 - **认证失败立即刷新会话**：`4102` / `3003` / `3004` 不再扫完全部协议端点；刷新 SSID 后当场重试当前请求，而不是空等下一个 30 秒轮询。`UsrLogin` 不返回 `familyId` 时只要拿到新 SSID 即视为重登成功（SmallERV 常见）。
 - 配置选项里可增减本账号下的设备；账号已添加时再次「添加集成」会提示已配置。
+- **新增 CABINET 柜式新风协议（FY-50ZR1C 等，同步自 jimmy-tsui fork 1.7.8–1.7.10）**：`devSubTypeId` 前缀 `CABINET`；控制读 `statusAll`、传感器读 MidERV；SET 走实测可用的 `ADevSetStatusInfoFloorPlacedERV` 长驼峰 bean（避免 MidERV 短名被云端静默丢弃）。签名键刻意多于 LD5C，避免柜机被误判。
+- **传感器单位对齐 HA 2027.8**：`CONCENTRATION_*` 改为 `UnitOfDensity` / `UnitOfRatio`（旧 HA 仍回退到原常量）。
 - 其他协议（SmallERV / MidERV / DCERV / LD5C / LD6C / NEWDCERV）控制字段不变。
 
 ## 1.7.7

@@ -6,12 +6,24 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
     UnitOfTemperature,
     UnitOfTime,
 )
+
+try:
+    from homeassistant.const import UnitOfDensity, UnitOfRatio
+
+    _PM25_UNIT = UnitOfDensity.MICROGRAMS_PER_CUBIC_METER
+    _CO2_UNIT = UnitOfRatio.PARTS_PER_MILLION
+except ImportError:  # Home Assistant < 2024.11
+    from homeassistant.const import (  # type: ignore[attr-defined]
+        CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        CONCENTRATION_PARTS_PER_MILLION,
+    )
+
+    _PM25_UNIT = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
+    _CO2_UNIT = CONCENTRATION_PARTS_PER_MILLION
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import get_account
@@ -42,21 +54,21 @@ SENSOR_SPECS: tuple[ERVSensorSpec, ...] = (
         "室外 PM2.5",
         "oa_pm25",
         SensorDeviceClass.PM25,
-        CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        _PM25_UNIT,
     ),
     ERVSensorSpec(
         "saPMC",
         "送风 PM2.5",
         "sa_pm25",
         SensorDeviceClass.PM25,
-        CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        _PM25_UNIT,
     ),
     ERVSensorSpec(
         "raPMC",
         "回风 PM2.5",
         "ra_pm25",
         SensorDeviceClass.PM25,
-        CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        _PM25_UNIT,
     ),
     ERVSensorSpec(
         "oaHumC",
@@ -105,7 +117,7 @@ SENSOR_SPECS: tuple[ERVSensorSpec, ...] = (
         "回风 CO2",
         "ra_co2",
         SensorDeviceClass.CO2,
-        CONCENTRATION_PARTS_PER_MILLION,
+        _CO2_UNIT,
     ),
     ERVSensorSpec(
         "raTVC",

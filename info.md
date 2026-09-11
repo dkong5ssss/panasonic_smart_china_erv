@@ -9,7 +9,7 @@ Home Assistant custom integration for Panasonic Smart China ERV / fresh-air devi
 - Config flow based setup (one Home Assistant entry per Panasonic account)
 - Reuses the Panasonic Smart China login and session flow
 - Supports ERV devices in categories `0800` and `0850`
-- Supports `SmallERV`, `MidERV`, `MidERV Dehumid`, and `DCERV-03`
+- Supports `SmallERV`, `MidERV`, `MidERV Dehumid`, `DCERV-03`, `NEWDCERV`, `LD5C`, `LD6C`, and `CABINET`
 - Exposes a `fan` entity for power and airflow control
 - Exposes `select` entities for run modes, MidERV filter maintenance, and DCERV-03 pressure/filter/air-quality settings
 - Exposes ERV `sensor` entities for PM2.5, temperature, humidity, CO2, TVOC, and filter-life data when the device reports those fields
