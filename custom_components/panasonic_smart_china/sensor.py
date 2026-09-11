@@ -14,13 +14,11 @@ from homeassistant.const import (
 )
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import get_account
 from .const import (
-    CONF_DEVICE_ID,
-    DOMAIN,
     SENSOR_INVALID_VALUES,
     SENSOR_KEYS_BY_SUBTYPE,
 )
-from .erv import async_get_coordinator
 
 SENSOR_ALIASES = {
     "raCO2C": "raCo2C",
@@ -152,23 +150,27 @@ SENSOR_SPECS: tuple[ERVSensorSpec, ...] = (
 )
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    """Set up Panasonic ERV sensor entities."""
-    coordinator = await async_get_coordinator(hass, entry)
+def _specs_for_coordinator(coordinator) -> tuple[ERVSensorSpec, ...]:
     allowed_keys = SENSOR_KEYS_BY_SUBTYPE.get(coordinator.device_subtype)
     if allowed_keys is None:
         data_keys = set((coordinator.data or {}).keys())
-        specs = tuple(
+        return tuple(
             spec
             for spec in SENSOR_SPECS
             if spec.key in data_keys or SENSOR_ALIASES.get(spec.key) in data_keys
         )
-    else:
-        specs = tuple(spec for spec in SENSOR_SPECS if spec.key in allowed_keys)
+    return tuple(spec for spec in SENSOR_SPECS if spec.key in allowed_keys)
 
-    async_add_entities(
-        PanasonicERVSensor(coordinator, entry, spec) for spec in specs
-    )
+
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Set up Panasonic ERV sensor entities."""
+    account = get_account(hass, entry)
+    entities = [
+        PanasonicERVSensor(coordinator, spec)
+        for coordinator in account.coordinators.values()
+        for spec in _specs_for_coordinator(coordinator)
+    ]
+    async_add_entities(entities)
 
 
 class PanasonicERVSensor(CoordinatorEntity, SensorEntity):
@@ -176,18 +178,12 @@ class PanasonicERVSensor(CoordinatorEntity, SensorEntity):
 
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coordinator, entry, spec: ERVSensorSpec) -> None:
+    def __init__(self, coordinator, spec: ERVSensorSpec) -> None:
         super().__init__(coordinator)
         self._spec = spec
-        device_id = entry.data[CONF_DEVICE_ID]
-        self._attr_name = f"{entry.title} {spec.name_suffix}"
-        self._attr_unique_id = f"panasonic_{device_id}_{spec.unique_suffix}"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, device_id)},
-            "manufacturer": "Panasonic",
-            "model": coordinator.device_subtype,
-            "name": entry.title,
-        }
+        self._attr_name = f"{coordinator.device_name} {spec.name_suffix}"
+        self._attr_unique_id = f"panasonic_{coordinator.device_id}_{spec.unique_suffix}"
+        self._attr_device_info = coordinator.ha_device_info
         if spec.device_class is not None:
             self._attr_device_class = spec.device_class
         if spec.unit is not None:

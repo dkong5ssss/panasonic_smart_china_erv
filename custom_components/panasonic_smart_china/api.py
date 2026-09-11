@@ -98,3 +98,51 @@ async def authenticate(username: str, password: str) -> dict[str, Any]:
             "realFamilyId": real_family_id,
             "devices": devices,
         }
+
+
+async def list_bound_devices(
+    usr_id: str,
+    ssid: str,
+    family_id: str | None = None,
+    real_family_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Fetch the bound-device list using an existing SSID.
+
+    Returns a deviceId -> params dict, or None when the session is invalid
+    or the request fails. Used by the options flow so adding devices does
+    not force a fresh UsrLogin (which would kick the live HA session).
+    """
+    headers = {
+        "User-Agent": "SmartApp",
+        "Content-Type": "application/json",
+        "Cookie": f"SSID={ssid}",
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            URL_GET_DEV,
+            json={
+                "id": 3,
+                "uiVersion": 4.0,
+                "params": {
+                    "realFamilyId": real_family_id,
+                    "familyId": family_id,
+                    "usrId": usr_id,
+                },
+            },
+            headers=headers,
+            ssl=psmartcloud_fingerprint(),
+        ) as response:
+            if response.status != 200:
+                return None
+            dev_res = await response.json()
+
+    error = dev_res.get("error")
+    if isinstance(error, dict) and error.get("code"):
+        return None
+    if "results" not in dev_res or "devList" not in dev_res["results"]:
+        return None
+
+    devices: dict[str, Any] = {}
+    for dev in dev_res["results"]["devList"]:
+        devices[dev["deviceId"]] = dev["params"]
+    return devices

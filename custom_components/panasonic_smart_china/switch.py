@@ -1,16 +1,17 @@
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .erv import async_get_coordinator
+from . import get_account
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Panasonic ERV switch entities."""
-    coordinator = await async_get_coordinator(hass, entry)
-    entities = []
-    if coordinator.supports_holiday_switch:
-        entities.append(PanasonicERVHolidaySwitch(coordinator, entry.title))
+    account = get_account(hass, entry)
+    entities = [
+        PanasonicERVHolidaySwitch(coordinator)
+        for coordinator in account.coordinators.values()
+        if coordinator.supports_holiday_switch
+    ]
     async_add_entities(entities)
 
 
@@ -19,16 +20,11 @@ class PanasonicERVHolidaySwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_icon = "mdi:beach"
 
-    def __init__(self, coordinator, device_name: str) -> None:
+    def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        self._attr_name = f"{device_name} 假日模式"
+        self._attr_name = f"{coordinator.device_name} 假日模式"
         self._attr_unique_id = f"panasonic_{coordinator.device_id}_holiday"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.device_id)},
-            "manufacturer": "Panasonic",
-            "model": coordinator.device_subtype,
-            "name": device_name,
-        }
+        self._attr_device_info = coordinator.ha_device_info
 
     @property
     def available(self) -> bool:

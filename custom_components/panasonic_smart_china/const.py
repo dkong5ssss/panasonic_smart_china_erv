@@ -9,10 +9,18 @@ CONF_DEV_SUB_TYPE_ID = "devSubTypeId"
 CONF_DEVICE_TOKEN_OVERRIDE = "device_token_override"
 CONF_FAMILY_ID = "familyId"
 CONF_REAL_FAMILY_ID = "realFamilyId"
+CONF_DEVICES = "devices"
+CONF_DEVICE_NAME = "device_name"
+
+# One config entry per Panasonic account (v1.8.0+).
+ACCOUNT_UNIQUE_ID_PREFIX = "panasonic_account_"
+
+# Cloud auth failures that mean the SSID/session was kicked or expired.
+AUTH_ERROR_CODES = frozenset({"4102", "3003", "3004"})
 
 # Minimum seconds between silent re-logins triggered by runtime self-healing.
 # Re-login kicks the previous cloud session (e.g. the phone app), so it must
-# stay rare: only fires when familyId is missing and a cooldown has elapsed.
+# stay rare. One login refreshes the shared account session for every device.
 RELOGIN_COOLDOWN_SECONDS = 300
 
 ERV_DEVICE_CATEGORY = "0800"

@@ -4,30 +4,26 @@ import asyncio
 from datetime import timedelta
 import logging
 import re
-import time
 
 import async_timeout
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import authenticate
+from .account import PanasonicAccountSession
 from .const import (
+    AUTH_ERROR_CODES,
     CONF_DEVICE_ID,
+    CONF_DEVICE_NAME,
     CONF_DEVICE_SUBTYPE,
     CONF_DEV_SUB_TYPE_ID,
-    CONF_FAMILY_ID,
-    CONF_REAL_FAMILY_ID,
-    CONF_SSID,
+    CONF_DEVICES,
     CONF_TOKEN,
     CONF_USR_ID,
     DEFAULT_LD6C_PARAMS,
     DEVICE_SUBTYPE_SMALL_ERV,
     DOMAIN,
     LD6C_SAFE_CONTROL_KEYS,
-    PRESET_LOW,
-    RELOGIN_COOLDOWN_SECONDS,
     SUPPORTED_ERV_SUBTYPES,
 )
 from .tls import psmartcloud_fingerprint
@@ -40,40 +36,30 @@ COMMAND_REFRESH_DELAY = 5
 URL_GET_DEV = "https://app.psmartcloud.com/App/UsrGetBindDevInfo"
 
 
-async def async_get_coordinator(hass, entry):
-    """Create or reuse the shared ERV coordinator for one config entry."""
-    domain_data = hass.data.setdefault(DOMAIN, {})
-    coordinators = domain_data.setdefault("coordinators", {})
-    coordinator = coordinators.get(entry.entry_id)
-    if coordinator is None:
-        coordinator = PanasonicERVCoordinator(hass, entry)
-        await coordinator.async_config_entry_first_refresh()
-        coordinators[entry.entry_id] = coordinator
-    return coordinator
-
-
 class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
-    """Shared ERV API client and state container."""
+    """Per-device ERV API client sharing the parent account session."""
 
-    def __init__(self, hass, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        hass,
+        entry: ConfigEntry,
+        account: PanasonicAccountSession,
+        device_id: str,
+        device_config: dict,
+    ) -> None:
         self._hass = hass
         self._entry = entry
-        config = entry.data
-        self._usr_id = config[CONF_USR_ID]
-        self._device_id = config[CONF_DEVICE_ID]
-        self._token = config[CONF_TOKEN]
-        self._ssid = config[CONF_SSID]
-        self._family_id = config.get(CONF_FAMILY_ID)
-        self._real_family_id = config.get(CONF_REAL_FAMILY_ID)
-        # Credentials stored since v1.7.1 let the runtime silently re-login to
-        # self-heal a missing/stale familyId or SSID.
-        self._username = config.get(CONF_USERNAME)
-        self._password = config.get(CONF_PASSWORD)
-        self._device_subtype = config.get(CONF_DEVICE_SUBTYPE, DEVICE_SUBTYPE_SMALL_ERV)
+        self._account = account
+        self._device_id = device_id
+        self._token = device_config[CONF_TOKEN]
+        self._device_name = device_config.get(CONF_DEVICE_NAME) or device_id
+        self._device_subtype = device_config.get(
+            CONF_DEVICE_SUBTYPE, DEVICE_SUBTYPE_SMALL_ERV
+        )
         # Vendor devSubTypeId (e.g. "LD7C") stored since v1.7.7; lets the
         # runtime probe build dynamic endpoints for models not yet in
         # SUPPORTED_ERV_SUBTYPES instead of waiting for a release.
-        self._dev_sub_type_id = config.get(CONF_DEV_SUB_TYPE_ID)
+        self._dev_sub_type_id = device_config.get(CONF_DEV_SUB_TYPE_ID)
         self._apply_protocol(self._device_subtype)
         self._last_params = self._default_params.copy()
         self._last_status_all_raw: dict = {}
@@ -170,6 +156,30 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
     @property
     def device_id(self) -> str:
         return self._device_id
+
+    @property
+    def device_name(self) -> str:
+        return self._device_name
+
+    @property
+    def ha_device_info(self) -> dict:
+        from homeassistant.const import CONF_USERNAME
+
+        from .account_data import account_unique_id
+
+        return {
+            "identifiers": {(DOMAIN, self._device_id)},
+            "manufacturer": "Panasonic",
+            "model": self._device_subtype,
+            "name": self._device_name,
+            "via_device": (
+                DOMAIN,
+                account_unique_id(
+                    self._entry.data.get(CONF_USERNAME),
+                    self._account.usr_id,
+                ),
+            ),
+        }
 
     @property
     def device_subtype(self) -> str:
@@ -406,8 +416,9 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         level = min(level_count, max(1, (percentage * level_count + 99) // 100))
         return self._air_volume_steps[level - 1]
 
-    async def _fetch_status(self):
+    async def _fetch_status(self, *, _retried: bool = False):
         """Fetch the current ERV status."""
+        seen_generation = self._account.generation
         probe_order = [
             subtype
             for subtype in (self._device_subtype,)
@@ -446,8 +457,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 )
 
             error_code = self._response_error_code(json_data)
-            if error_code in {"3003", "3004"}:
-                raise RuntimeError(f"Panasonic SSID expired for device {self._device_id}")
+            if error_code in AUTH_ERROR_CODES:
+                probe_errors.append((subtype, json_data))
+                _LOGGER.debug(
+                    "ERV status probe returned auth error for %s via %s: %s",
+                    self._device_id,
+                    subtype,
+                    json_data,
+                )
+                break
             if error_code and error_code != "0":
                 probe_errors.append((subtype, json_data))
                 _LOGGER.debug(
@@ -531,15 +549,18 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         if not candidates:
             if probe_errors:
                 # Auth-related failures (e.g. 4102 认证错误 / 3003 / 3004)
-                # mean the session went stale. Give the silent re-login a
-                # chance to refresh credentials before surfacing the error;
-                # the next poll retries with the fresh session.
-                try:
-                    await self._try_self_heal_family_id()
-                except Exception:  # noqa: BLE001
-                    pass
+                # mean the shared account session went stale. Refresh once
+                # and retry this fetch so every device picks up the new SSID.
+                last_error = probe_errors[-1][1]
+                last_code = self._response_error_code(last_error)
+                if last_code in AUTH_ERROR_CODES and not _retried:
+                    refreshed = await self._account.async_refresh_session(
+                        seen_generation=seen_generation
+                    )
+                    if refreshed:
+                        return await self._fetch_status(_retried=True)
                 raise RuntimeError(
-                    f"Could not fetch ERV status for {self._device_id}: {probe_errors[-1][1]}"
+                    f"Could not fetch ERV status for {self._device_id}: {last_error}"
                 )
             return None
 
@@ -570,12 +591,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
     def _persist_detected_subtype(self, detected_subtype: str) -> None:
         """Persist runtime subtype upgrades so old config entries self-heal."""
-        if self._entry.data.get(CONF_DEVICE_SUBTYPE) == detected_subtype:
+        devices = dict(self._entry.data.get(CONF_DEVICES) or {})
+        current = dict(devices.get(self._device_id) or {})
+        if current.get(CONF_DEVICE_SUBTYPE) == detected_subtype:
             return
-
+        current[CONF_DEVICE_SUBTYPE] = detected_subtype
+        devices[self._device_id] = current
         self._hass.config_entries.async_update_entry(
             self._entry,
-            data={**self._entry.data, CONF_DEVICE_SUBTYPE: detected_subtype},
+            data={**self._entry.data, CONF_DEVICES: devices},
         )
 
     def _known_run_mode_score(self, protocol: dict, results: dict) -> int:
@@ -661,7 +685,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             "params": {
                 "token": self._token,
                 "deviceId": self._device_id,
-                "usrId": self._usr_id,
+                "usrId": self._account.usr_id,
             },
         }
         session = async_get_clientsession(self._hass)
@@ -689,29 +713,18 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
     async def _request_status_all(self) -> dict | None:
         """Fetch the device-list statusAll payload used by LD5C control state.
 
-        Requires familyId/realFamilyId, stored in the config entry by the
-        config flow (or self-healed via a silent re-login since v1.7.1).
-        Some accounts never receive familyId in the UsrLogin response, yet
-        UsrGetBindDevInfo still answers the device list without it (the
-        params are tolerated as null), so we send the request anyway
-        instead of bailing out when they are missing.
-        Returns None when the request fails.
+        familyId/realFamilyId are optional: some accounts never receive them
+        in UsrLogin, yet UsrGetBindDevInfo still answers without them.
+        Auth failures are handled by the shared account session in
+        ``_fetch_status`` — this method must not re-login on its own.
         """
-        if not self._family_id or not self._real_family_id:
-            healed = await self._try_self_heal_family_id()
-            if not healed:
-                _LOGGER.debug(
-                    "No familyId stored for %s; requesting statusAll without it",
-                    self._device_id,
-                )
-
         payload = {
             "id": 3,
             "uiVersion": 4.0,
             "params": {
-                "realFamilyId": self._real_family_id,
-                "familyId": self._family_id,
-                "usrId": self._usr_id,
+                "realFamilyId": self._account.real_family_id,
+                "familyId": self._account.family_id,
+                "usrId": self._account.usr_id,
             },
         }
         session = async_get_clientsession(self._hass)
@@ -736,60 +749,6 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 return self._normalize_status_all(status_all)
         return None
 
-    async def _try_self_heal_family_id(self) -> bool:
-        """Silently re-login to fetch familyId/realFamilyId and write them back.
-
-        Uses credentials stored in the config entry (v1.7.1+). A cooldown keeps
-        re-logins rare because a new login kicks the previous cloud session
-        (e.g. the Panasonic phone app).
-        """
-        if not self._username or not self._password:
-            return False
-
-        domain_data = self._hass.data.setdefault(DOMAIN, {})
-        now = time.monotonic()
-        last_ts = domain_data.get("last_relogin_ts", 0)
-        if now - last_ts < RELOGIN_COOLDOWN_SECONDS:
-            _LOGGER.debug(
-                "Skip silent re-login for %s: cooldown active (%ds left)",
-                self._device_id,
-                int(RELOGIN_COOLDOWN_SECONDS - (now - last_ts)),
-            )
-            return False
-        domain_data["last_relogin_ts"] = now
-
-        try:
-            result = await authenticate(self._username, self._password)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Silent re-login failed for %s: %s", self._device_id, err)
-            return False
-
-        new_data = {**self._entry.data}
-        new_data[CONF_USR_ID] = result["usrId"]
-        new_data[CONF_SSID] = result["ssId"]
-        if result.get(CONF_FAMILY_ID) is not None:
-            new_data[CONF_FAMILY_ID] = result[CONF_FAMILY_ID]
-        if result.get(CONF_REAL_FAMILY_ID) is not None:
-            new_data[CONF_REAL_FAMILY_ID] = result[CONF_REAL_FAMILY_ID]
-        self._hass.config_entries.async_update_entry(self._entry, data=new_data)
-
-        # Refresh in-memory state so the retry below uses the new values.
-        self._usr_id = result["usrId"]
-        self._ssid = result["ssId"]
-        self._family_id = new_data.get(CONF_FAMILY_ID)
-        self._real_family_id = new_data.get(CONF_REAL_FAMILY_ID)
-
-        if not self._family_id or not self._real_family_id:
-            _LOGGER.warning(
-                "Silent re-login for %s did not return familyId; "
-                "the account may need re-adding",
-                self._device_id,
-            )
-            return False
-
-        _LOGGER.info("Self-healed familyId for %s via silent re-login", self._device_id)
-        return True
-
     @staticmethod
     def _normalize_status_all(status_all: dict) -> dict:
         """Convert statusAll string values to int where possible."""
@@ -808,7 +767,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             "params": {
                 "token": self._token,
                 "deviceId": self._device_id,
-                "usrId": self._usr_id,
+                "usrId": self._account.usr_id,
             },
         }
         if protocol.get("status_identity_top_level"):
@@ -816,7 +775,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             # level of the request body (official web page request shape).
             payload = {
                 "id": protocol.get("status_request_id", 2),
-                CONF_USR_ID: self._usr_id,
+                CONF_USR_ID: self._account.usr_id,
                 CONF_DEVICE_ID: self._device_id,
                 CONF_TOKEN: self._token,
             }
@@ -837,8 +796,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         changes: dict,
         *,
         refresh: bool = True,
+        _retried: bool = False,
     ) -> None:
         """Send a control request using the selected ERV protocol rules."""
+        seen_generation = self._account.generation
         # Protocols with a set field map (LD5C) speak their own wire field
         # names (runningStatus/runningMode/airVolume) and send the full bean
         # with only the target field changed - exactly like the official
@@ -863,7 +824,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         if not self._set_identity_top_level:
             current_params[CONF_DEVICE_ID] = self._device_id
             current_params[CONF_TOKEN] = self._token
-            current_params[CONF_USR_ID] = self._usr_id
+            current_params[CONF_USR_ID] = self._account.usr_id
 
         params = {
             key: current_params[key]
@@ -877,7 +838,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             # level of the request body (official web page request shape).
             body = {
                 "id": self._set_request_id,
-                CONF_USR_ID: self._usr_id,
+                CONF_USR_ID: self._account.usr_id,
                 CONF_DEVICE_ID: self._device_id,
                 CONF_TOKEN: self._token,
                 "params": params,
@@ -911,6 +872,15 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         _LOGGER.debug("ERV set response %s: %s", self._device_id, response_json)
 
         error_code = self._response_error_code(response_json)
+        if error_code in AUTH_ERROR_CODES and not _retried:
+            refreshed = await self._account.async_refresh_session(
+                seen_generation=seen_generation
+            )
+            if refreshed:
+                await self.async_send_command(
+                    changes, refresh=refresh, _retried=True
+                )
+                return
         if error_code and error_code != "0":
             raise RuntimeError(
                 f"Panasonic ERV set command failed for {self._device_id}: {response_json}"
@@ -939,13 +909,4 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         return ""
 
     def _get_headers(self) -> dict:
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "SmartApp",
-            "Cookie": f"SSID={self._ssid}",
-        }
-        if self._use_xtoken_header:
-            # Info-family endpoints are controlled through the same auth
-            # header the official web control page sends.
-            headers["xtoken"] = f"SSID={self._ssid}"
-        return headers
+        return self._account.request_headers(use_xtoken=self._use_xtoken_header)

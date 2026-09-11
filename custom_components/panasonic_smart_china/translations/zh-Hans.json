@@ -3,18 +3,24 @@
     "step": {
       "user": {
         "title": "登录松下账号",
-        "description": "请输入您的松下智能家电 App（中国版）账号密码。首次登录会自动缓存会话，后续添加设备时可复用。",
+        "description": "请输入您的松下智能家电 App（中国版）账号密码。同一账号只创建一条集成，该账号下的所有新风设备共享同一次登录会话。",
         "data": {
           "username": "手机号",
           "password": "密码"
         }
       },
-      "device": {
+      "devices": {
         "title": "选择新风设备",
-        "description": "已获取账号下的设备列表，请选择要添加的松下新风设备。若抓包拿到了设备 token，可一并填入以覆盖自动生成值。",
+        "description": "请选择要接入 Home Assistant 的一台或多台松下新风。之后可在集成的“配置”里增减设备。",
         "data": {
-          "deviceId": "新风设备",
-          "device_token_override": "设备 Token（可选）"
+          "devices": "新风设备"
+        }
+      },
+      "reauth_confirm": {
+        "title": "重新登录松下账号",
+        "description": "账号 {username} 的会话已失效，请输入密码以刷新。",
+        "data": {
+          "password": "密码"
         }
       }
     },
@@ -23,11 +29,30 @@
       "no_devices_found": "未找到设备：请确认账号下已绑定设备",
       "no_supported_devices_found": "未找到可用的新风设备：当前支持 0800/0850 分类下的 SmallERV 和 MidERV 设备",
       "token_generation_failed": "Token 生成失败：设备 ID 格式不正确",
-      "all_devices_configured": "所有设备均已添加，无需重复配置"
+      "no_devices_selected": "请至少选择一台新风设备"
     },
     "abort": {
-      "already_configured": "该设备已配置",
+      "already_configured": "该松下账号已添加。如需增减设备，请使用集成的“配置”。",
       "reauth_successful": "重新认证成功"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "本账号下的新风设备",
+        "description": "选择要由 Home Assistant 控制的新风。取消勾选的设备会从本集成中移除。",
+        "data": {
+          "devices": "新风设备"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "无法获取设备列表：会话可能已过期。请重试，或重新认证该集成。",
+      "no_devices_selected": "请至少选择一台新风设备",
+      "token_generation_failed": "Token 生成失败：设备 ID 格式不正确"
+    },
+    "abort": {
+      "no_supported_devices_found": "该账号下没有可用的新风设备"
     }
   },
   "entity": {

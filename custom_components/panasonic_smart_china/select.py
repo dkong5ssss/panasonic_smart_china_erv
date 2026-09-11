@@ -2,34 +2,30 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .erv import async_get_coordinator
+from . import get_account
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Panasonic ERV select entities."""
-    coordinator = await async_get_coordinator(hass, entry)
-    entities = [PanasonicERVRunModeSelect(coordinator, entry.title)]
-    entities.extend(
-        PanasonicERVFieldSelect(coordinator, entry.title, config)
-        for config in coordinator.extra_selects
-    )
+    account = get_account(hass, entry)
+    entities = []
+    for coordinator in account.coordinators.values():
+        entities.append(PanasonicERVRunModeSelect(coordinator))
+        entities.extend(
+            PanasonicERVFieldSelect(coordinator, config)
+            for config in coordinator.extra_selects
+        )
     async_add_entities(entities)
 
 
 class PanasonicERVRunModeSelect(CoordinatorEntity, SelectEntity):
     """ERV run mode selector."""
 
-    def __init__(self, coordinator, device_name: str) -> None:
+    def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        self._attr_name = f"{device_name} 运行模式"
+        self._attr_name = f"{coordinator.device_name} 运行模式"
         self._attr_unique_id = f"panasonic_{coordinator.device_id}_run_mode"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.device_id)},
-            "manufacturer": "Panasonic",
-            "model": coordinator.device_subtype,
-            "name": device_name,
-        }
+        self._attr_device_info = coordinator.ha_device_info
 
     @property
     def available(self) -> bool:
@@ -54,7 +50,7 @@ class PanasonicERVRunModeSelect(CoordinatorEntity, SelectEntity):
 class PanasonicERVFieldSelect(CoordinatorEntity, SelectEntity):
     """Protocol-configured selector for ERV settings."""
 
-    def __init__(self, coordinator, device_name: str, config: dict) -> None:
+    def __init__(self, coordinator, config: dict) -> None:
         super().__init__(coordinator)
         self._field = config["field"]
         self._options_by_value = config["options"]
@@ -62,16 +58,11 @@ class PanasonicERVFieldSelect(CoordinatorEntity, SelectEntity):
             option: value for value, option in self._options_by_value.items()
         }
         self._available_when = config.get("available_when")
-        self._attr_name = f"{device_name} {config['name_suffix']}"
+        self._attr_name = f"{coordinator.device_name} {config['name_suffix']}"
         self._attr_unique_id = f"panasonic_{coordinator.device_id}_{config['suffix']}"
         self._attr_options = list(dict.fromkeys(self._options_by_value.values()))
         self._attr_icon = config.get("icon")
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.device_id)},
-            "manufacturer": "Panasonic",
-            "model": coordinator.device_subtype,
-            "name": device_name,
-        }
+        self._attr_device_info = coordinator.ha_device_info
 
     @property
     def available(self) -> bool:

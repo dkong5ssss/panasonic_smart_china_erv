@@ -1,29 +1,28 @@
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .erv import async_get_coordinator
+from . import get_account
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Panasonic ERV fan entities."""
-    coordinator = await async_get_coordinator(hass, entry)
-    async_add_entities([PanasonicERVEntity(coordinator, entry.title)])
+    account = get_account(hass, entry)
+    async_add_entities(
+        [
+            PanasonicERVEntity(coordinator)
+            for coordinator in account.coordinators.values()
+        ]
+    )
 
 
 class PanasonicERVEntity(CoordinatorEntity, FanEntity):
     """Panasonic Smart China ERV fan entity."""
 
-    def __init__(self, coordinator, name) -> None:
+    def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        self._attr_name = name
+        self._attr_name = coordinator.device_name
         self._attr_unique_id = f"panasonic_{coordinator.device_id}"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.device_id)},
-            "manufacturer": "Panasonic",
-            "model": coordinator.device_subtype,
-            "name": name,
-        }
+        self._attr_device_info = coordinator.ha_device_info
 
     @property
     def available(self) -> bool:
