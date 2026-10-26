@@ -401,6 +401,7 @@ SENSOR_INVALID_VALUES = {
     "saFilExTL": frozenset({65535}),
     "raFilExTL": frozenset({65535}),
     "resFilExTL": frozenset({65535}),
+    "resFilClTL": frozenset({65535}),
 }
 
 DEFAULT_SMALL_ERV_PARAMS = {

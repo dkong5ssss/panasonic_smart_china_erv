@@ -28,6 +28,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import get_account
 from .const import (
+    DEVICE_SUBTYPE_LD6C,
     SENSOR_INVALID_VALUES,
     SENSOR_KEYS_BY_SUBTYPE,
 )
@@ -159,7 +160,30 @@ SENSOR_SPECS: tuple[ERVSensorSpec, ...] = (
         UnitOfTime.HOURS,
         icon="mdi:air-filter",
     ),
+    ERVSensorSpec(
+        "resFilClTL",
+        "滤网清洗提醒剩余时间",
+        "res_filter_clean_remaining",
+        SensorDeviceClass.DURATION,
+        UnitOfTime.HOURS,
+        icon="mdi:air-filter",
+    ),
 )
+
+
+# These fields are used by an existing 25ZDP2C implementation, but other
+# LD6C models can report only sentinels. Discover them on valid data rather
+# than adding unknown entities to every LD6C installation.
+LD6C_OPTIONAL_SENSOR_KEYS = frozenset({"raPMC", "resFilClTL"})
+
+
+def _has_valid_optional_value(coordinator, key: str) -> bool:
+    raw = (coordinator.data or {}).get(key)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return value >= 0 and value not in SENSOR_INVALID_VALUES.get(key, ())
 
 
 def _specs_for_coordinator(coordinator) -> tuple[ERVSensorSpec, ...]:
@@ -169,20 +193,42 @@ def _specs_for_coordinator(coordinator) -> tuple[ERVSensorSpec, ...]:
         return tuple(
             spec
             for spec in SENSOR_SPECS
-            if spec.key in data_keys or SENSOR_ALIASES.get(spec.key) in data_keys
+            if spec.key != "resFilClTL"
+            and (spec.key in data_keys or SENSOR_ALIASES.get(spec.key) in data_keys)
         )
-    return tuple(spec for spec in SENSOR_SPECS if spec.key in allowed_keys)
+    return tuple(
+        spec
+        for spec in SENSOR_SPECS
+        if spec.key in allowed_keys
+        or (
+            coordinator.device_subtype == DEVICE_SUBTYPE_LD6C
+            and spec.key in LD6C_OPTIONAL_SENSOR_KEYS
+            and _has_valid_optional_value(coordinator, spec.key)
+        )
+    )
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Panasonic ERV sensor entities."""
     account = get_account(hass, entry)
-    entities = [
-        PanasonicERVSensor(coordinator, spec)
-        for coordinator in account.coordinators.values()
-        for spec in _specs_for_coordinator(coordinator)
-    ]
-    async_add_entities(entities)
+    added: set[tuple[str, str]] = set()
+
+    def _add_entities() -> None:
+        entities = []
+        for coordinator in account.coordinators.values():
+            for spec in _specs_for_coordinator(coordinator):
+                identity = (coordinator.device_id, spec.key)
+                if identity not in added:
+                    added.add(identity)
+                    entities.append(PanasonicERVSensor(coordinator, spec))
+        if entities:
+            async_add_entities(entities)
+
+    _add_entities()
+    # A device may be offline or return sentinels during the first refresh.
+    # Discover optional fields when valid data arrives, without a reload.
+    for coordinator in account.coordinators.values():
+        entry.async_on_unload(coordinator.async_add_listener(_add_entities))
 
 
 class PanasonicERVSensor(CoordinatorEntity, SensorEntity):

@@ -11,7 +11,7 @@ from .account import (
 from .account_data import account_unique_id, is_unmerged_device_data
 from .const import CONF_DEVICES, CONF_USR_ID, DOMAIN
 
-PLATFORMS = ["fan", "select", "sensor", "switch"]
+PLATFORMS = ["fan", "select", "sensor", "switch", "light"]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
