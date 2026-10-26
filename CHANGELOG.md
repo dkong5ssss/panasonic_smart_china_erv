@@ -1,6 +1,11 @@
 # Changelog
 
+## 1.9.0
+
+- **LD6C 可选实体（#7，感谢 @cuichaobaobao）**：呼吸灯（`breathLight`，独立 `light`）、回风 PM2.5（`raPMC`）、滤网清洗倒计时（`resFilClTL`，小时）。仅在设备返回有效值后创建；稍后恢复有效值会自动补建。其他机型不受影响。
+
 ## 1.8.0
+
 
 - **同一松下账号改为一条 config entry（issue #5）**。登录一次即可勾选账号下全部新风；所有设备共享同一份 SSID。静默重登只发生一次，并立刻写回这条账号级 entry，不再出现「A 重登把 B 踢掉、过几分钟再反过来」的互踢。
 - **自动迁移**：升级后会把旧的「一设备一条集成」条目按账号合并。实体 `unique_id` 仍按 `panasonic_{deviceId}` 生成，entity_id 保持不变。合并完成后只保留一条「Panasonic {手机号}」集成。
