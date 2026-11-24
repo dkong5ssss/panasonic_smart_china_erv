@@ -4,6 +4,7 @@ import asyncio
 from datetime import timedelta
 import logging
 import re
+from urllib.parse import quote
 
 import async_timeout
 from homeassistant.config_entries import ConfigEntry
@@ -118,6 +119,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._set_field_name_map = protocol.get("set_field_name_map", {})
         self._set_identity_top_level = protocol.get("set_identity_top_level", False)
         self._use_xtoken_header = protocol.get("use_xtoken_header", False)
+        self._referer_template = protocol.get("referer_template", "")
         self._supports_holiday_switch = protocol.get("supports_holiday_switch", True)
         self._url_get = protocol["get_url"]
         self._url_set = protocol["set_url"]
@@ -242,7 +244,11 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         return self._extra_selects
 
     def supports_control_field(self, field: str) -> bool:
-        return field in self._safe_control_keys
+        # Auxiliary entities use internal names (holM/windPath/...), while
+        # Info-family safe_control_keys hold the wire names. Translate first,
+        # otherwise holiday/wind entities are permanently unavailable.
+        wire_field = self._set_field_name_map.get(field, field)
+        return wire_field in self._safe_control_keys
 
     @property
     def supports_holiday_switch(self) -> bool:
@@ -879,6 +885,12 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
     ) -> None:
         """Send a control request using the selected ERV protocol rules."""
         seen_generation = self._account.generation
+        # Keep the internal-name changes for the optimistic state update below;
+        # the wire-name copy is only for the request body. Without this, a
+        # mapped protocol (CABINET/LD5C) stores "airVolume" in _last_params
+        # while the entity reads "airVo", so HA shows the old speed until the
+        # next poll.
+        internal_changes = dict(changes)
         # Protocols with a set field map (LD5C) speak their own wire field
         # names (runningStatus/runningMode/airVolume) and send the full bean
         # with only the target field changed - exactly like the official
@@ -943,7 +955,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             response = await session.post(
                 self._url_set,
                 json=body,
-                headers=self._get_headers(),
+                headers=self._get_headers(for_set=True),
                 ssl=psmartcloud_fingerprint(),
             )
             response_json = await response.json()
@@ -967,7 +979,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
 
         optimistic_params = self._default_params.copy()
         optimistic_params.update(self._last_params)
-        optimistic_params.update(changes)
+        optimistic_params.update(internal_changes)
         self._last_params = optimistic_params
         self.async_set_updated_data(self._last_params)
         if refresh:
@@ -987,5 +999,20 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 return str(nested_code)
         return ""
 
-    def _get_headers(self) -> dict:
-        return self._account.request_headers(use_xtoken=self._use_xtoken_header)
+    def _get_headers(self, *, for_set: bool = False) -> dict:
+        headers = self._account.request_headers(use_xtoken=self._use_xtoken_header)
+        if for_set and self._referer_template:
+            # The cloud validates the Referer against the official control
+            # page. Without it, SET requests return HTTP 200 + todoId but the
+            # command is silently dropped (issue #10, HAR-confirmed). Quote
+            # every query value so a non-ASCII device name cannot break
+            # aiohttp's latin-1 header encoding.
+            dev_type = str(self._dev_sub_type_id or "CABINET").upper()
+            headers["Referer"] = self._referer_template.format(
+                dev_type=dev_type,
+                device_id=quote(str(self._device_id or ""), safe=""),
+                usr_id=quote(str(self._account.usr_id or ""), safe=""),
+                ssid=quote(str(self._account.ssid or ""), safe=""),
+                device_name=quote(str(self._device_name or ""), safe=""),
+            )
+        return headers
