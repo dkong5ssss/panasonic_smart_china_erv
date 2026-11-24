@@ -154,22 +154,23 @@ LD6C_AIR_VOLUME_TO_PRESET = {
 
 LD6C_AIR_VOLUME_STEPS = [0, 1, 2]
 
-# CABINET air volume follows MidERV 3-step convention (1=low, 2=medium, 3=high).
-# Verified against FY-50ZR1C statusAll reading airVolume="2" with the device
-# running (runningStatus="1").
+# CABINET air volume is 1-5 on the official 0800/CABINET web control page,
+# whose constants name FY-70ZR1C, FY-50ZR1C and FY-RZ50R1 and whose panel
+# shows five speed buttons (1档..5档). The previous 3-step list made 4/5
+# unreachable and capped HA percentages at 60% (issue #10).
 CABINET_PRESET_TO_AIR_VOLUME = {
     PRESET_LOW: 1,
-    PRESET_MEDIUM: 2,
-    PRESET_HIGH: 3,
+    PRESET_MEDIUM: 3,
+    PRESET_HIGH: 5,
 }
 
 CABINET_AIR_VOLUME_TO_PRESET = {
     1: PRESET_LOW,
-    2: PRESET_MEDIUM,
-    3: PRESET_HIGH,
+    3: PRESET_MEDIUM,
+    5: PRESET_HIGH,
 }
 
-CABINET_AIR_VOLUME_STEPS = [1, 2, 3]
+CABINET_AIR_VOLUME_STEPS = [1, 2, 3, 4, 5]
 
 CABINET_RUN_MODE_TO_OPTION = {
     0: RUN_MODE_HEAT_EXCHANGE,
@@ -200,6 +201,11 @@ ERV_OPTION_TO_RUN_MODE = {
 ERV_RUN_MODE_LINKED_CHANGES = {
     3: {"airVo": 1},
 }
+
+# ERV-01 is a 3-speed model (1弱/2中/3强). Keep this list separate from
+# CABINET's so widening the cabinet family to five speeds cannot turn ERV-01
+# into a 5-speed device (shared-constant leak guard, issue #10).
+ERV_AIR_VOLUME_STEPS = [1, 2, 3]
 
 DC_ERV_RUN_MODE_TO_OPTION = {
     48: RUN_MODE_HEAT_EXCHANGE,
@@ -640,15 +646,35 @@ DEFAULT_CABINET_PARAMS = {
 }
 
 # Info-family SET bean for ADevSetStatusInfoFloorPlacedERV. Long camelCase,
-# 255 = keep, identity at body top level (same lesson as LD5C v1.7.3).
+# 255 = keep, timer hour/minute 127 = keep, identity at body top level.
+# This is the full 23-field bean from the official 0800/CABINET page
+# (js/common/api_utility.js). The cloud accepts the old 7-field subset with
+# HTTP 200 + todoId but never delivers it to the device; HAR-confirmed on the
+# cabinet family (issue #10).
 CABINET_SET_DEFAULT_PARAMS = {
     "runningStatus": 255,
     "runningMode": 255,
     "airVolume": 255,
-    "holidayMode": 255,
-    "windPath": 255,
-    "pPressureMode": 255,
     "heatingMode": 255,
+    "pPressureMode": 255,
+    "nanoe": 255,
+    "airDirection": 255,
+    "holidayMode": 255,
+    "PM25AutoSensitivity": 255,
+    "CO2AutoSensitivity": 255,
+    "oaFilterExist": 255,
+    "saFilterClCycle": 255,
+    "oaFilterClCycle": 255,
+    "saFilterExCycle": 255,
+    "oaFilterExCycle": 255,
+    "saFilterExist": 255,
+    "onTimerSetting": 255,
+    "onTimerHour": 127,
+    "onTimerMinute": 127,
+    "offTimerSetting": 255,
+    "offTimerHour": 127,
+    "offTimerMinute": 127,
+    "panelLockSetting": 255,
 }
 
 CABINET_SET_FIELD_NAME_MAP = {
@@ -656,10 +682,21 @@ CABINET_SET_FIELD_NAME_MAP = {
     "runM": "runningMode",
     "airVo": "airVolume",
     "holM": "holidayMode",
-    "windPath": "windPath",
+    "windPath": "airDirection",
     "pPressureMode": "pPressureMode",
     "HeatM": "heatingMode",
 }
+
+# The cloud validates the Referer against the official cabinet web page.
+# Without it, SET returns HTTP 200 + todoId but the device never acts
+# (HAR-confirmed, jimmy-tsui fork 1.7.13). Use the device's own devSubTypeId
+# page (CABINET-01 for FY-70ZR1C, CABINET-02 for FY-50ZR1C); the generic
+# CABINET page is the fallback when older entries have no stored subtype.
+CABINET_REFERER_TEMPLATE = (
+    "https://app.psmartcloud.com/ca/cn/0800/{dev_type}/index.html"
+    "?deviceId={device_id}&usrId={usr_id}&SSID={ssid}"
+    "&devType={dev_type}&deviceName={device_name}"
+)
 
 CABINET_SAFE_CONTROL_KEYS = [
     *CABINET_SET_DEFAULT_PARAMS.keys(),
@@ -1047,8 +1084,8 @@ SUPPORTED_ERV_SUBTYPES = {
         "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
         # SET verified live (jimmy-tsui fork): only InfoERV and
         # InfoFloorPlacedERV return HTTP 200 + todoId. FloorPlacedERV is
-        # the semantic match for FY-50ZR1C cabinet units. MidERV short
-        # names are silently dropped - same LD5C v1.7.3 lesson.
+        # the semantic match for the cabinet family (FY-50ZR1C / 70ZR1C).
+        # MidERV short names are silently dropped - same LD5C v1.7.3 lesson.
         "set_url": "https://app.psmartcloud.com/App/ADevSetStatusInfoFloorPlacedERV",
         "default_params": DEFAULT_CABINET_PARAMS,
         "control_params": CABINET_SET_DEFAULT_PARAMS,
@@ -1056,6 +1093,10 @@ SUPPORTED_ERV_SUBTYPES = {
         "set_identity_top_level": True,
         "set_request_id": 2,
         "use_xtoken_header": True,
+        # Both the full 23-field bean and this Referer are required. A short
+        # bean or a missing Referer is queued as todoId and silently dropped
+        # by the cloud (issue #10, HAR-confirmed).
+        "referer_template": CABINET_REFERER_TEMPLATE,
         "merge_current_status_for_control": False,
         "single_field_commands": True,
         "safe_control_keys": CABINET_SAFE_CONTROL_KEYS,
@@ -1087,7 +1128,7 @@ SUPPORTED_ERV_SUBTYPES = {
         "safe_control_keys": ERV_SAFE_CONTROL_KEYS,
         "preset_to_air_volume": CABINET_PRESET_TO_AIR_VOLUME,
         "air_volume_to_preset": CABINET_AIR_VOLUME_TO_PRESET,
-        "air_volume_steps": CABINET_AIR_VOLUME_STEPS,
+        "air_volume_steps": ERV_AIR_VOLUME_STEPS,
         "run_mode_to_option": ERV_RUN_MODE_TO_OPTION,
         "option_to_run_mode": ERV_OPTION_TO_RUN_MODE,
         "run_mode_linked_changes": ERV_RUN_MODE_LINKED_CHANGES,
