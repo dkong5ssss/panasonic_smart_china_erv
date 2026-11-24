@@ -100,6 +100,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._air_volume_steps = protocol.get("air_volume_steps", [])
         self._run_mode_to_option = protocol.get("run_mode_to_option", {})
         self._option_to_run_mode = protocol.get("option_to_run_mode", {})
+        self._run_mode_linked_changes = protocol.get("run_mode_linked_changes", {})
         self._extra_selects = tuple(protocol.get("extra_selects", ()))
         self._status_request_id = protocol.get("status_request_id", 2)
         self._status_ui_version = protocol.get("status_ui_version")
@@ -321,7 +322,9 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 if air_volume is not None:
                     commands.append({"airVo": air_volume})
             if preset_mode in self._option_to_run_mode:
-                commands.append({"runM": self._option_to_run_mode[preset_mode]})
+                commands.append(
+                    self._run_mode_changes(self._option_to_run_mode[preset_mode])
+                )
             await self._async_send_command_sequence(commands)
             return
 
@@ -365,12 +368,14 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             commands = []
             if not self.is_on:
                 commands.append({"runSta": 1})
-            commands.append({"runM": self._option_to_run_mode[preset_mode]})
+            commands.append(
+                self._run_mode_changes(self._option_to_run_mode[preset_mode])
+            )
             await self._async_send_command_sequence(commands)
             return
 
         await self.async_send_command(
-            {"runSta": 1, "runM": self._option_to_run_mode[preset_mode]}
+            {"runSta": 1, **self._run_mode_changes(self._option_to_run_mode[preset_mode])}
         )
 
     async def async_set_run_mode(self, option: str) -> None:
@@ -384,11 +389,28 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             commands = []
             if not self.is_on:
                 commands.append({"runSta": 1})
-            commands.append({"runM": run_mode})
+            commands.append(self._run_mode_changes(run_mode))
             await self._async_send_command_sequence(commands)
             return
 
-        await self.async_send_command({"runSta": 1, "runM": run_mode})
+        await self.async_send_command({"runSta": 1, **self._run_mode_changes(run_mode)})
+
+    def _run_mode_changes(self, run_mode: int) -> dict:
+        """Return the run-mode change plus any protocol-linked field changes.
+
+        ERV-01: the official page sends airVolume=1 together with sleep mode.
+        """
+        changes = {"runM": run_mode}
+        changes.update(self._run_mode_linked_changes.get(run_mode, {}))
+        return changes
+
+    def _protocol_allowed_for_device(self, protocol: dict) -> bool:
+        """Gate protocols that must only be probed for matching devSubTypeId."""
+        prefixes = protocol.get("dev_sub_type_prefixes")
+        if not prefixes:
+            return True
+        sub_type = str(self._dev_sub_type_id or "").upper()
+        return any(sub_type.startswith(prefix) for prefix in prefixes)
 
     async def async_set_field(self, field: str, value: int) -> None:
         """Set a protocol field exposed through an auxiliary entity."""
@@ -427,6 +449,12 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         for subtype in SUPPORTED_ERV_SUBTYPES:
             if subtype not in probe_order:
                 probe_order.append(subtype)
+        probe_order = [
+            subtype
+            for subtype in probe_order
+            if subtype == self._device_subtype
+            or self._protocol_allowed_for_device(SUPPORTED_ERV_SUBTYPES[subtype])
+        ]
 
         # Unrecognized models (AUTO or unknown subtype with a vendor
         # devSubTypeId) get their own vendor endpoints probed last so status
@@ -627,9 +655,13 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             # mapped runSta/runM/airVo (which every endpoint returns).
             self._last_status_all_raw = status_all or {}
             if status_all:
+                # Map with the probed protocol's own field map, not the
+                # currently applied one, so a probe candidate's result is
+                # complete on the poll where it wins.
+                field_map = protocol.get("status_all_field_map", {})
                 mapped = {
                     internal: status_all[external]
-                    for external, internal in self._status_all_field_map.items()
+                    for external, internal in field_map.items()
                     if external in status_all
                 }
                 results = json_data.get("results")

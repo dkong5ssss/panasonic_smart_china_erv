@@ -37,6 +37,12 @@ DEVICE_SUBTYPE_LD6C = "LD6C"
 # cache; live outdoor sensors come from ADevGetStatusMidERV. Ported from
 # jimmy-tsui fork 1.7.8–1.7.10 (InfoFloorPlacedERV SET verified live).
 DEVICE_SUBTYPE_CABINET = "CABINET"
+# ERV-* (FV-09ZVDH1C etc., devSubTypeId "ERV-01"): wall/ceiling ERV with the
+# same Info-family long camelCase statusAll as CABINET, but its own official
+# web control page (0800/ERV-01) and SET endpoint ADevSetStatusInfoERV.
+# Before this subtype existed it was misdetected as CABINET (issue #8):
+# status reads worked, every SET returned a todoId but the unit ignored it.
+DEVICE_SUBTYPE_ERV = "ERV"
 # AUTO = device not matched by devSubTypeId or statusAll signature at config
 # time; the runtime probe loop in the coordinator will converge on a real
 # protocol on the first fetch and persist it back to the config entry.
@@ -175,6 +181,24 @@ CABINET_RUN_MODE_TO_OPTION = {
 
 CABINET_OPTION_TO_RUN_MODE = {
     option: mode for mode, option in CABINET_RUN_MODE_TO_OPTION.items()
+}
+
+# ERV-01 run modes from the official 0800/ERV-01 control_panel.js. There is
+# no 1 (external circulation) on this model.
+ERV_RUN_MODE_TO_OPTION = {
+    0: RUN_MODE_HEAT_EXCHANGE,
+    2: RUN_MODE_INTERNAL_CIRCULATION,
+    3: RUN_MODE_SLEEP,
+    4: RUN_MODE_AUTO_ECO,
+}
+
+ERV_OPTION_TO_RUN_MODE = {
+    option: mode for mode, option in ERV_RUN_MODE_TO_OPTION.items()
+}
+
+# The official page sends airVolume=1 together with runningMode=3 (sleep).
+ERV_RUN_MODE_LINKED_CHANGES = {
+    3: {"airVo": 1},
 }
 
 DC_ERV_RUN_MODE_TO_OPTION = {
@@ -378,6 +402,21 @@ SENSOR_KEYS_BY_SUBTYPE = {
         "saTeC",
         "raCO2C",
         "oaFilExTL",
+        "saFilExTL",
+        "raFilExTL",
+    ),
+    # ERV-* (FV-09ZVDH1C): outdoor sensors + raFilExTL from MidERV GET, the
+    # rest from statusAll. saHumidityCur is a 255 sentinel and there is no
+    # outdoor filter (oaFilterExTimeLeft=65535), so both are left off.
+    DEVICE_SUBTYPE_ERV: (
+        "oaPMC",
+        "oaTeC",
+        "oaHumC",
+        "raPMC",
+        "raTeC",
+        "raHumC",
+        "saPMC",
+        "saTeC",
         "saFilExTL",
         "raFilExTL",
     ),
@@ -624,6 +663,75 @@ CABINET_SET_FIELD_NAME_MAP = {
 
 CABINET_SAFE_CONTROL_KEYS = [
     *CABINET_SET_DEFAULT_PARAMS.keys(),
+]
+
+# ERV-* statusAll field map: the CABINET map minus the CO2 fields (ERV-01 has
+# no CO2 sensor) plus ERV-01-specific keys. The extra keys make the runtime
+# probe score ERV above CABINET, so entries already pinned to CABINET by
+# older versions migrate to ERV on the first poll without being re-added.
+ERV_STATUS_ALL_FIELD_MAP = {
+    **{
+        key: value
+        for key, value in CABINET_STATUS_ALL_FIELD_MAP.items()
+        if key not in ("raCO2Cur", "raCO2Max")
+    },
+    "saPM25Cur": "saPMC",
+    "autoSensitivity": "autoSensitivity",
+    "saFilterClCycle": "saFilterClCycle",
+    "saFilterExCycle": "saFilterExCycle",
+    "saFilterClTimeLeft": "saFilterClTimeLeft",
+    "oaFilterClTimeLeft": "oaFilterClTimeLeft",
+    "pm25SensorClTimeLeft": "pm25SensorClTimeLeft",
+}
+
+DEFAULT_ERV_PARAMS = {
+    "runSta": 0,
+    "runM": 255,
+    "airVo": 255,
+    "holM": 255,
+    "windPath": 0,
+    "pPressureMode": 255,
+    "HeatM": 255,
+    "saFilExTL": 255,
+    "raFilExTL": 255,
+}
+
+# setData from the official 0800/ERV-01 api_utility.js: 255 = keep,
+# timer hour/minute 127 = keep. The page always sends this full bean with
+# only the target field changed.
+ERV_SET_DEFAULT_PARAMS = {
+    "runningStatus": 255,
+    "runningMode": 255,
+    "airVolume": 255,
+    "heatingMode": 255,
+    "pPressureMode": 255,
+    "holidayMode": 255,
+    "autoSensitivity": 255,
+    "oaFilterExist": 255,
+    "saFilterClCycle": 255,
+    "oaFilterClCycle": 255,
+    "saFilterExCycle": 255,
+    "oaFilterExCycle": 255,
+    "saFilterExist": 255,
+    "onTimerSetting": 255,
+    "onTimerHour": 127,
+    "onTimerMinute": 127,
+    "offTimerSetting": 255,
+    "offTimerHour": 127,
+    "offTimerMinute": 127,
+}
+
+ERV_SET_FIELD_NAME_MAP = {
+    "runSta": "runningStatus",
+    "runM": "runningMode",
+    "airVo": "airVolume",
+    "holM": "holidayMode",
+    "pPressureMode": "pPressureMode",
+    "HeatM": "heatingMode",
+}
+
+ERV_SAFE_CONTROL_KEYS = [
+    *ERV_SET_DEFAULT_PARAMS.keys(),
 ]
 
 DEFAULT_DC_ERV_PARAMS = {
@@ -961,6 +1069,37 @@ SUPPORTED_ERV_SUBTYPES = {
         "uses_status_all": True,
         "status_all_field_map": CABINET_STATUS_ALL_FIELD_MAP,
     },
+    DEVICE_SUBTYPE_ERV: {
+        "label": "InfoERV",
+        # Sensors from the live MidERV GET (verified on FV-09ZVDH1C); control
+        # state from statusAll, same as CABINET.
+        "get_url": "https://app.psmartcloud.com/App/ADevGetStatusMidERV",
+        # Official 0800/ERV-01 web control page (api_utility.js).
+        "set_url": "https://app.psmartcloud.com/App/ADevSetStatusInfoERV",
+        "default_params": DEFAULT_ERV_PARAMS,
+        "control_params": ERV_SET_DEFAULT_PARAMS,
+        "set_field_name_map": ERV_SET_FIELD_NAME_MAP,
+        "set_identity_top_level": True,
+        "set_request_id": 2,
+        "use_xtoken_header": True,
+        "merge_current_status_for_control": False,
+        "single_field_commands": True,
+        "safe_control_keys": ERV_SAFE_CONTROL_KEYS,
+        "preset_to_air_volume": CABINET_PRESET_TO_AIR_VOLUME,
+        "air_volume_to_preset": CABINET_AIR_VOLUME_TO_PRESET,
+        "air_volume_steps": CABINET_AIR_VOLUME_STEPS,
+        "run_mode_to_option": ERV_RUN_MODE_TO_OPTION,
+        "option_to_run_mode": ERV_OPTION_TO_RUN_MODE,
+        "run_mode_linked_changes": ERV_RUN_MODE_LINKED_CHANGES,
+        "signature_keys": frozenset(ERV_STATUS_ALL_FIELD_MAP),
+        "extra_selects": (),
+        "uses_status_all": True,
+        "status_all_field_map": ERV_STATUS_ALL_FIELD_MAP,
+        # Only probe this protocol for devices whose cloud devSubTypeId says
+        # ERV: its statusAll fields overlap CABINET, and a score-based switch
+        # must never move a real cabinet unit onto the ERV SET endpoint.
+        "dev_sub_type_prefixes": ("ERV",),
+    },
     DEVICE_SUBTYPE_SMALL_ERV: {
         "label": "SmallERV",
         "get_url": "https://app.psmartcloud.com/App/ADevGetStatusSmallERV",
@@ -1143,4 +1282,5 @@ SUPPORTED_ERV_DEVICE_HINTS = {
     DEVICE_SUBTYPE_LD5C,
     DEVICE_SUBTYPE_LD6C,
     DEVICE_SUBTYPE_CABINET,
+    DEVICE_SUBTYPE_ERV,
 }
