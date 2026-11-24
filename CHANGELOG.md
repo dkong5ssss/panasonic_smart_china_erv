@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **新增 ERV 协议（`devSubTypeId` 形如 `ERV-01`，FV-09ZVDH1C 等，issue #8）**。此前这类设备被签名打分误判为 CABINET：状态能读，但 SET 发到 `ADevSetStatusInfoFloorPlacedERV`，云端回 todoId、设备不执行。现在按松下官方 Web 控制页 `0800/ERV-01` 的协议：SET 走 `ADevSetStatusInfoERV`，身份字段放顶层、带 xtoken，每次发送完整 `setData`（255 保持、定时时分 127 保持），只改目标字段；运行模式 0 热交换 / 2 内循环 / 3 睡眠 / 4 自动ECO（无外循环），切睡眠时同时发 `airVolume=1`。
+- **ERV 睡眠模式的风量**：睡眠锁定最低风量。睡眠中调风量时，自动退出睡眠、回到进睡眠之前的模式（没有记录就用热交换）并设成目标风量，一次完成；从睡眠切回其他模式时恢复进睡眠之前的风量（和官方页面一致）。
+- **已被误判成 CABINET 的旧条目自动迁移**：ERV 的 `statusAll` 字段表比 CABINET 多几项 ERV-01 独有字段，第一次轮询就会胜出并写回配置，不用删掉集成重加。ERV 协议只对 `devSubTypeId` 以 `ERV` 开头的设备参与探测，真正的柜机不会被移到 ERV 端点。
+- 探测时 `statusAll` 按被探测协议自己的字段表映射（原来用的是当前协议的表），候选协议胜出的那一次轮询数据就完整。
+- 其他协议控制字段不变。
+
 ## 1.9.0
 
 - **LD6C 可选实体（#7，感谢 @cuichaobaobao）**：呼吸灯（`breathLight`，独立 `light`）、回风 PM2.5（`raPMC`）、滤网清洗倒计时（`resFilClTL`，小时）。仅在设备返回有效值后创建；稍后恢复有效值会自动补建。其他机型不受影响。
