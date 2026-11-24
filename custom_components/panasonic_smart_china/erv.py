@@ -64,6 +64,10 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._last_params = self._default_params.copy()
         self._last_status_all_raw: dict = {}
         self._last_status_raw: dict = {}
+        # Last non-sleep run mode / air volume seen, so leaving sleep can
+        # restore them (ERV-01 sleep forces the lowest air volume).
+        self._pre_sleep_run_mode: int | None = None
+        self._pre_sleep_air_volume: int | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -101,6 +105,8 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         self._run_mode_to_option = protocol.get("run_mode_to_option", {})
         self._option_to_run_mode = protocol.get("option_to_run_mode", {})
         self._run_mode_linked_changes = protocol.get("run_mode_linked_changes", {})
+        self._sleep_run_mode = protocol.get("sleep_run_mode")
+        self._sleep_exit_default_run_mode = protocol.get("sleep_exit_default_run_mode")
         self._extra_selects = tuple(protocol.get("extra_selects", ()))
         self._status_request_id = protocol.get("status_request_id", 2)
         self._status_ui_version = protocol.get("status_ui_version")
@@ -352,7 +358,14 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
             commands = []
             if not self.is_on:
                 commands.append({"runSta": 1})
-            commands.append({"airVo": air_volume})
+            if self._in_sleep_mode():
+                # Sleep locks the lowest air volume on ERV-01: leave sleep
+                # (back to the pre-sleep mode) and apply the speed together.
+                commands.append(
+                    {"runM": self._sleep_exit_run_mode(), "airVo": air_volume}
+                )
+            else:
+                commands.append({"airVo": air_volume})
             await self._async_send_command_sequence(commands)
             return
 
@@ -402,7 +415,40 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
         """
         changes = {"runM": run_mode}
         changes.update(self._run_mode_linked_changes.get(run_mode, {}))
+        if (
+            self._in_sleep_mode()
+            and run_mode != self._sleep_run_mode
+            and self._pre_sleep_air_volume is not None
+        ):
+            # Official page: leaving sleep restores the pre-sleep air volume.
+            changes.setdefault("airVo", self._pre_sleep_air_volume)
         return changes
+
+    def _in_sleep_mode(self) -> bool:
+        return (
+            self._sleep_run_mode is not None
+            and self._int_param("runM") == self._sleep_run_mode
+        )
+
+    def _sleep_exit_run_mode(self) -> int:
+        if self._pre_sleep_run_mode is not None:
+            return self._pre_sleep_run_mode
+        return self._sleep_exit_default_run_mode
+
+    def _remember_pre_sleep_state(self, params: dict) -> None:
+        """Track the last non-sleep run mode and air volume."""
+        if self._sleep_run_mode is None:
+            return
+        try:
+            run_mode = int(params.get("runM"))
+            air_volume = int(params.get("airVo"))
+        except (TypeError, ValueError):
+            return
+        if run_mode == self._sleep_run_mode or run_mode not in self._run_mode_to_option:
+            return
+        self._pre_sleep_run_mode = run_mode
+        if air_volume in self._air_volume_steps:
+            self._pre_sleep_air_volume = air_volume
 
     def _protocol_allowed_for_device(self, protocol: dict) -> bool:
         """Gate protocols that must only be probed for matching devSubTypeId."""
@@ -614,6 +660,7 @@ class PanasonicERVCoordinator(DataUpdateCoordinator[dict]):
                 self._persist_detected_subtype(detected_subtype)
 
         self._last_params = merged
+        self._remember_pre_sleep_state(merged)
         self.data = merged
         return merged
 

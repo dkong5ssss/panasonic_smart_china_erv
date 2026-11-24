@@ -1091,6 +1091,10 @@ SUPPORTED_ERV_SUBTYPES = {
         "run_mode_to_option": ERV_RUN_MODE_TO_OPTION,
         "option_to_run_mode": ERV_OPTION_TO_RUN_MODE,
         "run_mode_linked_changes": ERV_RUN_MODE_LINKED_CHANGES,
+        # Sleep locks the lowest air volume. Setting a speed while asleep
+        # leaves sleep for the pre-sleep mode (heat exchange if unknown).
+        "sleep_run_mode": 3,
+        "sleep_exit_default_run_mode": 0,
         "signature_keys": frozenset(ERV_STATUS_ALL_FIELD_MAP),
         "extra_selects": (),
         "uses_status_all": True,

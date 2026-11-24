@@ -63,6 +63,8 @@ def make_coordinator(subtype, dev_sub_type_id):
     coordinator._last_params = coordinator._default_params.copy()
     coordinator._last_status_all_raw = {}
     coordinator._last_status_raw = {}
+    coordinator._pre_sleep_run_mode = None
+    coordinator._pre_sleep_air_volume = None
     coordinator._persist_detected_subtype = MagicMock()
     return coordinator
 
@@ -191,6 +193,51 @@ class ERV01CommandTests(unittest.IsolatedAsyncioTestCase):
         params = posted[0][1]["params"]
         self.assertEqual(params["runningMode"], 0)
         self.assertEqual(params["airVolume"], 255)
+
+    async def test_speed_in_sleep_leaves_sleep_for_pre_sleep_mode(self):
+        coordinator = make_coordinator(const.DEVICE_SUBTYPE_ERV, "ERV-01")
+        coordinator._remember_pre_sleep_state({"runM": 2, "airVo": 2})
+        coordinator._last_params = {**coordinator._last_params, "runSta": 1, "runM": 3, "airVo": 1}
+        posted = await self._send(coordinator, lambda: coordinator.async_set_percentage(100))
+        self.assertEqual(len(posted), 1)
+        params = posted[0][1]["params"]
+        self.assertEqual(params["runningMode"], 2)
+        self.assertEqual(params["airVolume"], 3)
+
+    async def test_speed_in_sleep_defaults_to_heat_exchange(self):
+        coordinator = make_coordinator(const.DEVICE_SUBTYPE_ERV, "ERV-01")
+        coordinator._last_params = {**coordinator._last_params, "runSta": 1, "runM": 3, "airVo": 1}
+        posted = await self._send(coordinator, lambda: coordinator.async_set_percentage(66))
+        params = posted[0][1]["params"]
+        self.assertEqual(params["runningMode"], 0)
+        self.assertEqual(params["airVolume"], 2)
+
+    async def test_speed_outside_sleep_only_changes_speed(self):
+        coordinator = make_coordinator(const.DEVICE_SUBTYPE_ERV, "ERV-01")
+        coordinator._last_params = {**coordinator._last_params, "runSta": 1, "runM": 0, "airVo": 1}
+        posted = await self._send(coordinator, lambda: coordinator.async_set_percentage(100))
+        params = posted[0][1]["params"]
+        self.assertEqual(params["runningMode"], 255)
+        self.assertEqual(params["airVolume"], 3)
+
+    async def test_leaving_sleep_restores_pre_sleep_speed(self):
+        coordinator = make_coordinator(const.DEVICE_SUBTYPE_ERV, "ERV-01")
+        coordinator._remember_pre_sleep_state({"runM": 0, "airVo": 3})
+        coordinator._remember_pre_sleep_state({"runM": 3, "airVo": 1})  # ignored
+        coordinator._last_params = {**coordinator._last_params, "runSta": 1, "runM": 3, "airVo": 1}
+        posted = await self._send(
+            coordinator, lambda: coordinator.async_set_run_mode(const.RUN_MODE_AUTO_ECO)
+        )
+        params = posted[0][1]["params"]
+        self.assertEqual(params["runningMode"], 4)
+        self.assertEqual(params["airVolume"], 3)
+
+    async def test_poll_records_pre_sleep_state(self):
+        coordinator = make_coordinator(const.DEVICE_SUBTYPE_ERV, "ERV-01")
+        mock_cloud(coordinator, {**ERV01_STATUS_ALL, "runningMode": "2", "airVolume": "3"})
+        await coordinator._fetch_status()
+        self.assertEqual(coordinator._pre_sleep_run_mode, 2)
+        self.assertEqual(coordinator._pre_sleep_air_volume, 3)
 
     def test_no_external_circulation_option(self):
         coordinator = make_coordinator(const.DEVICE_SUBTYPE_ERV, "ERV-01")
